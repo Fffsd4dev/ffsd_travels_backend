@@ -1,0 +1,276 @@
+{
+    "data": {
+        "type": "flight-order",
+        "id": "eJzTd9f3i%2FQ2DXYCAAt1AmI%3D",
+        "queuingOfficeId": "NCE4D31SB",
+        "associatedRecords": [
+            {
+                "reference": "NYK5SB",
+                "creationDate": "2024-07-08T07:47:00.000",
+                "originSystemCode": "GDS",
+                "flightOfferId": "1"
+            }
+        ],
+        "flightOffers": [
+            {
+                "type": "flight-offer",
+                "id": "1",
+                "source": "GDS",
+                "nonHomogeneous": false,
+                "lastTicketingDate": "2024-07-10",
+                "itineraries": [
+                    {
+                        "segments": [
+                            {
+                                "departure": {
+                                    "iataCode": "LHR",
+                                    "terminal": "2",
+                                    "at": "2024-07-10T09:45:00"
+                                },
+                                "arrival": {
+                                    "iataCode": "DEL",
+                                    "terminal": "3",
+                                    "at": "2024-07-10T22:50:00"
+                                },
+                                "carrierCode": "AI",
+                                "number": "162",
+                                "aircraft": {
+                                    "code": "788"
+                                },
+                                "duration": "PT8H35M",
+                                "id": "1",
+                                "numberOfStops": 0,
+                                "co2Emissions": [
+                                    {
+                                        "weight": 280,
+                                        "weightUnit": "KG",
+                                        "cabin": "ECONOMY"
+                                    }
+                                ]
+                            },
+                            {
+                                "departure": {
+                                    "iataCode": "DEL",
+                                    "terminal": "3",
+                                    "at": "2024-07-11T02:05:00"
+                                },
+                                "arrival": {
+                                    "iataCode": "BKK",
+                                    "at": "2024-07-11T07:55:00"
+                                },
+                                "carrierCode": "AI",
+                                "number": "336",
+                                "aircraft": {
+                                    "code": "32N"
+                                },
+                                "duration": "PT4H20M",
+                                "id": "2",
+                                "numberOfStops": 0,
+                                "co2Emissions": [
+                                    {
+                                        "weight": 183,
+                                        "weightUnit": "KG",
+                                        "cabin": "ECONOMY"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "price": {
+                    "currency": "NGN",
+                    "total": "899522.00",
+                    "base": "295055.00",
+                    "fees": [
+                        {
+                            "amount": "0.00",
+                            "type": "TICKETING"
+                        },
+                        {
+                            "amount": "0.00",
+                            "type": "SUPPLIER"
+                        },
+                        {
+                            "amount": "0.00",
+                            "type": "FORM_OF_PAYMENT"
+                        }
+                    ],
+                    "grandTotal": "899522.00",
+                    "billingCurrency": "NGN"
+                },
+                "pricingOptions": {
+                    "fareType": [
+                        "PUBLISHED"
+                    ],
+                    "includedCheckedBagsOnly": true
+                },
+                "validatingAirlineCodes": [
+                    "AI"
+                ],
+                "travelerPricings": [
+                    {
+                        "travelerId": "1",
+                        "fareOption": "STANDARD",
+                        "travelerType": "ADULT",
+                        "price": {
+                            "currency": "NGN",
+                            "total": "899522.00",
+                            "base": "295055.00",
+                            "taxes": [
+                                {
+                                    "amount": "1498.00",
+                                    "code": "E7"
+                                },
+                                {
+                                    "amount": "642.00",
+                                    "code": "G8"
+                                },
+                                {
+                                    "amount": "183413.00",
+                                    "code": "GB"
+                                },
+                                {
+                                    "amount": "97468.00",
+                                    "code": "UB"
+                                },
+                                {
+                                    "amount": "315400.00",
+                                    "code": "YQ"
+                                },
+                                {
+                                    "amount": "6046.00",
+                                    "code": "YR"
+                                }
+                            ],
+                            "refundableTaxes": "604467.00"
+                        },
+                        "fareDetailsBySegment": [
+                            {
+                                "segmentId": "1",
+                                "cabin": "ECONOMY",
+                                "fareBasis": "UPSO3LHC",
+                                "class": "U",
+                                "includedCheckedBags": {
+                                    "quantity": 2
+                                }
+                            },
+                            {
+                                "segmentId": "2",
+                                "cabin": "ECONOMY",
+                                "fareBasis": "UPSO3LHC",
+                                "class": "U",
+                                "includedCheckedBags": {
+                                    "quantity": 2
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "travelers": [
+            {
+                "id": "1",
+                "dateOfBirth": "1982-01-16",
+                "gender": "MALE",
+                "name": {
+                    "firstName": "JORGE",
+                    "lastName": "GONZALES"
+                },
+                "documents": [
+                    {
+                        "number": "00000000",
+                        "issuanceDate": "2015-04-14",
+                        "expiryDate": "2025-04-14",
+                        "issuanceCountry": "ES",
+                        "issuanceLocation": "Madrid",
+                        "nationality": "ES",
+                        "birthPlace": "Madrid",
+                        "documentType": "PASSPORT",
+                        "holder": true
+                    }
+                ],
+                "contact": {
+                    "purpose": "STANDARD",
+                    "phones": [
+                        {
+                            "deviceType": "MOBILE",
+                            "countryCallingCode": "34",
+                            "number": "480080076"
+                        }
+                    ],
+                    "emailAddress": "jorge.gonzales833@telefonica.es"
+                }
+            }
+        ],
+        "remarks": {
+            "general": [
+                {
+                    "subType": "GENERAL_MISCELLANEOUS",
+                    "text": "ONLINE BOOKING FROM INCREIBLE VIAJES"
+                }
+            ]
+        },
+        "ticketingAgreement": {
+            "option": "DELAY_TO_CANCEL",
+            "delay": "6D"
+        },
+        "automatedProcess": [
+            {
+                "code": "IMMEDIATE",
+                "queue": {
+                    "number": "0",
+                    "category": "0"
+                },
+                "officeId": "NCE4D31SB"
+            }
+        ],
+        "contacts": [
+            {
+                "addresseeName": {
+                    "firstName": "PABLO RODRIGUEZ"
+                },
+                "address": {
+                    "lines": [
+                        "Calle Prado, 16"
+                    ],
+                    "postalCode": "28014",
+                    "countryCode": "ES",
+                    "cityName": "Madrid"
+                },
+                "purpose": "STANDARD",
+                "phones": [
+                    {
+                        "deviceType": "LANDLINE",
+                        "countryCallingCode": "34",
+                        "number": "480080071"
+                    },
+                    {
+                        "deviceType": "MOBILE",
+                        "countryCallingCode": "33",
+                        "number": "480080072"
+                    }
+                ],
+                "companyName": "INCREIBLE VIAJES",
+                "emailAddress": "support@increibleviajes.es"
+            }
+        ]
+    },
+    "dictionaries": {
+        "locations": {
+            "BKK": {
+                "cityCode": "BKK",
+                "countryCode": "TH"
+            },
+            "LHR": {
+                "cityCode": "LON",
+                "countryCode": "GB"
+            },
+            "DEL": {
+                "cityCode": "DEL",
+                "countryCode": "IN"
+            }
+        }
+    },
+    "accessToken": "wZacy2D1QsSKntEAVw2hnzQk9R5c"
+}
