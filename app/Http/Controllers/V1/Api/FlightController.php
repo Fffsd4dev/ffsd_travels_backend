@@ -54,19 +54,22 @@ private function filterAirportsWithKeyword(array $airportData, string $keyword):
             $name = strtolower($airport['name']);
             $city = strtolower($airport['city']);
             $country = strtolower($airport['country']);
+            $time_zone = strtolower($airport['tz']);
 
             // Check if the keyword matches any of the fields
             if (
                 strpos($iataCode, $keyword) !== false ||
                 strpos($name, $keyword) !== false ||
                 strpos($city, $keyword) !== false ||
-                strpos($country, $keyword) !== false
+                strpos($country, $keyword) !== false ||
+                strpos($time_zone, $keyword) !== false
             ) {
                 yield [
                     'iata' => $airport['iata_code'],
                     'name' => $airport['name'],
                     'city' => $airport['city'],
                     'country' => $airport['country'],
+                    'time_zone' => $airport['tz'],
                 ];
             }
         }
@@ -238,12 +241,17 @@ private function fetchApiData(string $url, string $accessToken, array $params): 
     // Cache the airport data
     $cacheKey = 'airports_iata_codes';
     $airportData = $this->getAirportData();
+
     
     // Create a lookup for airport names by IATA code
     $airportLookup = [];
     foreach ($airportData as $air_data) {
         $airportLookup[$air_data['iata_code']] = $air_data['name'];
+        $airportLookupTimeZone[$air_data['iata_code']] = strtoupper($air_data['timezone']);
+        $airportLookupCountry[$air_data['iata_code']] = strtoupper($air_data['country']);
+        $airportLookupCity[$air_data['iata_code']] = strtoupper($air_data['city']);
     }
+
 
     // Cache the airline logos data
     $cacheKey = 'airlineLogos';
@@ -294,20 +302,58 @@ private function fetchApiData(string $url, string $accessToken, array $params): 
                 if (isset($flightOffer['itineraries']) && is_array($flightOffer['itineraries'])) {
                     foreach ($flightOffer['itineraries'] as &$itinerary) {
                         if (isset($itinerary['segments']) && is_array($itinerary['segments'])) {
-                            foreach ($itinerary['segments'] as &$segment) {
+                           foreach ($itinerary['segments'] as $index => &$segment) {
                                 // Add airport_name to departure and arrival locations
                                 if (isset($segment['departure']['iataCode'])) {
                                     $iataCode = $segment['departure']['iataCode'];
                                     if (isset($airportLookup[$iataCode])) {
                                         $segment['departure_airport'] = $airportLookup[$iataCode];
                                         $departureAirport = $segment['departure_airport'];
+                                        $departureTimeZone = $airportLookupTimeZone[$iataCode];
+                                        $departureTime = $segment['departure']['at'];
+                                        $segment['departureTimeZone'] = $departureTimeZone;
+                                        $segment['departureCountry'] = $airportLookupCountry[$iataCode] ?? null;
+                                        $segment['departureCity'] = $airportLookupCity[$iataCode] ?? null;
+                                        
+
                                     }
                                 }
                                 if (isset($segment['arrival']['iataCode'])) {
                                     $iataCode = $segment['arrival']['iataCode'];
                                     if (isset($airportLookup[$iataCode])) {
                                         $segment['arrival_airport'] = $airportLookup[$iataCode];
-                                        $arrivalAirport = $segment['arrival_airport'];
+                                        $segment['arrivalTimeZone'] = $airportLookupTimeZone[$iataCode];
+                                        $segment['arrivalCountry'] = $airportLookupCountry[$iataCode] ?? null;
+                                        $segment['arrivalCity'] = $airportLookupCity[$iataCode] ?? null;
+                                    
+                                        $duration = $this->getFlightDuration(
+                                            $departureTime,
+                                            $segment['arrival']['at'],
+                                            $departureTimeZone,
+                                            $segment['arrivalTimeZone'],
+                                        );
+                                        $segment['flight_duration'] = $duration;
+                                        //$segment['layover_duration'] = $duration['layover_duration']; 
+                                        if ($index > 0) {
+                        $previousSegment = $itinerary['segments'][$index - 1];
+
+                        $prevArrivalAt   = Carbon::parse($previousSegment['arrival']['at']);
+                        $thisDepartureAt = Carbon::parse($segment['departure']['at']);
+
+                        $layoverMinutes = $prevArrivalAt->diffInMinutes($thisDepartureAt);
+                        $layoverHours   = floor($layoverMinutes / 60);
+                        $layoverMins    = $layoverMinutes % 60;
+
+                        $segment['layover_duration'] = [
+                            'layover_duration'   => sprintf('%dh %02dm', $layoverHours, $layoverMins),
+                            'layover_in_minutes'  => $layoverMinutes,
+                            'airport'     => $previousSegment['arrival']['iataCode'],
+                            'airport_name'=> $previousSegment['arrival_airport'] 
+                                           ?? $previousSegment['arrival']['iataCode'],
+                            'airport_country' => $previousSegment['arrivalCountry'] ?? null,
+                            'airport_city' => $previousSegment['arrivalCity'] ?? null
+                        ];
+                    }  
                                     }
                                 }
 
@@ -343,6 +389,14 @@ private function fetchApiData(string $url, string $accessToken, array $params): 
     return $responseData;
 }
 
+private function getFlightDuration($departureTime, $arrivalTime, $departureTimeZone, $arrivalTimeZone)
+{
+    // Calculate flight duration
+   $departure = Carbon::parse($departureTime, $departureTimeZone);
+    $arrival = Carbon::parse($arrivalTime, $arrivalTimeZone);
+    $durationInSeconds = $arrival->getTimestamp() - $departure->getTimestamp();
+    return gmdate("H:i:s", $durationInSeconds);
+}
 
     private function confirmStatus(string $accessToken, array $data, string $amaClient): array
     {
@@ -1568,8 +1622,5 @@ private function sendEmail($flight_data)
 
 
 
-    
-
 }
-
 

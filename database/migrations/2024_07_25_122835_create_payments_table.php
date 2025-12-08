@@ -20,7 +20,7 @@ return new class extends Migration
             $table->string('payment_status')->default('not_confirmed'); // Default status for payments
             $table->foreignId('flight_order_id')->nullable()->constrained('flight_orders')->onDelete('set null'); // Foreign key to flight_orders table
             $table->foreignId('paid_by_user_id')->nullable()->constrained('users')->onDelete('set null'); // Foreign key to users table
-            $table->foreignId('paid_by_company_id')->nullable()->constrained('companies')->onDelete('set null'); // Foreign key to companies table
+            $table->foreignId('paid_by_company_id')->nullable()->constrained('company_models')->onDelete('set null'); // Foreign key to companies table
             $table->string('flight_pnr')->nullable(); // Flight PNR (nullable if not applicable)
             $table->string('flight_am_order_id')->nullable(); // Optional Amadeus order ID
             $table->foreignId('wallet_id')->nullable()->constrained('wallets')->onDelete('set null'); // Foreign key to wallets table
