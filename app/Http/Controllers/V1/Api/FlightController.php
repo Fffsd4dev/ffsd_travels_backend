@@ -344,7 +344,7 @@ private function fetchApiData(string $url, string $accessToken, array $params): 
                         $layoverHours   = floor($layoverMinutes / 60);
                         $layoverMins    = $layoverMinutes % 60;
 
-                        $segment['layover_duration'] = [
+                        $segment['layover_data'] = [
                             'layover_duration'   => sprintf('%dh %02dm', $layoverHours, $layoverMins),
                             'layover_in_minutes'  => $layoverMinutes,
                             'airport'     => $previousSegment['arrival']['iataCode'],
