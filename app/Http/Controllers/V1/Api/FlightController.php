@@ -277,6 +277,7 @@ private function fetchApiData(string $url, string $accessToken, array $params): 
 
     // Decode the JSON response
     $responseData = $response->json();
+    
 
     if (isset($responseData['errors'][0]['code']) && $responseData['errors'][0]['code'] === 38189) {
         $responseData = [];
@@ -356,12 +357,17 @@ private function fetchApiData(string $url, string $accessToken, array $params): 
                     }  
                                     }
                                 }
+                                
 
                                 // Add airlineName and logo to each segment
                                 if (isset($segment['carrierCode'])) {
-                                    $carrierCode = $segment['operating']['carrierCode'];
+                                
+                                    $carrierCode = $segment['carrierCode'];
+                                
+                            
                                     if (isset($carriers[$carrierCode])) {
                                         $segment['airlineName'] = $carriers[$carrierCode];
+                                
                                     }
                                     // Check if the logo exists for the carrier code
                                     if (isset($airlineLogoData[$carrierCode])) {
@@ -1016,119 +1022,7 @@ public function searchFlights(FlightSearchRequest $request): JsonResponse
             ]);
     }
 
-// public function searchMultiple(Multicity $request): JsonResponse
-// {
-//     $extraBg = false;
-//   if(isset($request['extra_bag'])){
-//       $extra_bag = $request['extra_bag'];
-//       $extraBg = true;
-       
-//   }
 
-//     // Retrieve airport data and create a lookup table
-//     $airportData = $this->getAirportData();
-    
-    
-    
-//     $airportLookup = [];
-//     foreach ($airportData as $airData) {
-//         $airportLookup[$airData['iata_code']] = $airData['name'];
-//     }
-
-//     // Retrieve airline logos and create a lookup table
-//     $airlineLogos = $this->getAirlineLogos();
-//     $airlineLogoData = [];
-   
-//     foreach ($airlineLogos['data'] as $airline) {
-//     if (isset($airline['iata_code'], $airline['logo'], $airline['name'])) {
-//         $airlineData[$airline['iata_code']] = [
-//             'logo' => $airline['logo'],
-//             'name' => $airline['name']
-//         ];
-//     }
-// }
-
-//     // Retrieve access tokens
-//     $accessToken = $this->getBearerToken($request->header('Authorization'));
-//     if(empty($accessToken)){
-//       $accessToken = $this->getAccessToken();
-//     }
-//     $amaClient = $this->getBearerToken($request->header('ama-client-ref') ?? null);
-
-//     // Validate request data
-//     $data = $request->validated();
-
-//     // Choose the correct URL based on search criteria
-//     $url = env('FLIGHT_SEARCH');
-
-//     // Fetch flight offers
-//     $flightOffers = $this->fetchFlightOffers($url, $accessToken, $data, $amaClient);
-
-//     // Handle potential errors in the flight offers response
-//     if ($this->hasErrors($flightOffers)) {
-//         if ($this->needsTokenRefresh($flightOffers['error']['errors'])) {
-//             // Attempt to get a new access token
-//             $accessToken = $this->getAccessToken();
-//             // Retry fetching flight offers with the new access token
-//             $flightOffers = $this->fetchFlightOffers($url, $accessToken, $data, $amaClient);
-            
-//         }
-//     }
-    
-
-
-//     if (isset($flightOffers['data']) && is_array($flightOffers['data'])) {
-        
-        
-//       if ($extraBg) {
-         
-//     $flightOffers['data'] = $this->GetExtraBagsProvider($flightOffers['data']);
-//     $flightOffers['meta']['count'] = count($flightOffers['data']);
-// }
-// $flightOffers['data'] = $this->sortCost($flightoffers);
-//         // Process each flight offer and enrich data
-//         foreach ($flightOffers['data'] as &$flightOffer) {
-//             // Apply pricing modifications
-//             $this->applyPricing($flightOffer);
-                            
-//             if (isset($flightOffer['itineraries']) && is_array($flightOffer['itineraries'])) {
-//                 foreach ($flightOffer['itineraries'] as &$itinerary) {
-//                     foreach ($itinerary['segments'] as &$segment) {
-//                         // Enrich departure and arrival information
-//                         $departureCode = $segment['departure']['iataCode'] ?? null;
-//                         $arrivalCode = $segment['arrival']['iataCode'] ?? null;
-
-//                         if ($departureCode && isset($airportLookup[$departureCode])) {
-//                             $segment['departure_airport'] = $airportLookup[$departureCode];
-//                         }
-
-//                         if ($arrivalCode && isset($airportLookup[$arrivalCode])) {
-//                             $segment['arrival_airport'] = $airportLookup[$arrivalCode];
-//                         }
-
-//                         // Add airline logo if available
-//                         $carrierCode = $segment['carrierCode'] ?? null;
-//                       if ($carrierCode) {
-//     // Add airline logo if available
-//     $segment['airlineLogo'] = $airlineData[$carrierCode]['logo'] ?? null;
-//     $segment['airlineLogo'] = $segment['airlineLogo'] ? substr($segment['airlineLogo'], 2) : null;
-
-//     // Add airline name if available
-//     $segment['airlineName'] = $airlineData[$carrierCode]['name'] ?? null;
-// }
-
-//                     }
-//                 }
-//             }
-//         }
-//     }
-  
-   
- 
-//  $flightOffers['accessToken'] = $accessToken; 
-
-//     return response()->json($flightOffers);
-// }
 
 public function searchMultiple(Multicity $request): JsonResponse
 { 
