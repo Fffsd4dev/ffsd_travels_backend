@@ -54,7 +54,7 @@ private function filterAirportsWithKeyword(array $airportData, string $keyword):
             $name = strtolower($airport['name']);
             $city = strtolower($airport['city']);
             $country = strtolower($airport['country']);
-            $time_zone = strtolower($airport['tz']);
+            $time_zone = strtolower($airport['timezone']);
 
             // Check if the keyword matches any of the fields
             if (
@@ -69,7 +69,7 @@ private function filterAirportsWithKeyword(array $airportData, string $keyword):
                     'name' => $airport['name'],
                     'city' => $airport['city'],
                     'country' => $airport['country'],
-                    'time_zone' => $airport['tz'],
+                    'time_zone' => $airport['timezone'],
                 ];
             }
         }
@@ -1142,9 +1142,12 @@ public function searchMultiple(Multicity $request): JsonResponse
 
     // Retrieve airport data and create a lookup table
     $airportData = $this->getAirportData();
-    $airportLookup = [];
-    foreach ($airportData as $airData) {
-        $airportLookup[$airData['iata_code']] = $airData['name'];
+      $airportLookup = [];
+    foreach ($airportData as $air_data) {
+        $airportLookup[$air_data['iata_code']] = $air_data['name'];
+        $airportLookupTimeZone[$air_data['iata_code']] = strtoupper($air_data['timezone']);
+        $airportLookupCountry[$air_data['iata_code']] = strtoupper($air_data['country']);
+        $airportLookupCity[$air_data['iata_code']] = strtoupper($air_data['city']);
     }
 
     // Retrieve airline logos and create a lookup table
@@ -1199,27 +1202,107 @@ public function searchMultiple(Multicity $request): JsonResponse
             
             if (isset($flightOffer['itineraries']) && is_array($flightOffer['itineraries'])) {
                 foreach ($flightOffer['itineraries'] as &$itinerary) {
-                    foreach ($itinerary['segments'] as &$segment) {
-                        
-                        $departureCode = $segment['departure']['iataCode'] ?? null;
-                        $arrivalCode = $segment['arrival']['iataCode'] ?? null;
 
-                        if ($departureCode && isset($airportLookup[$departureCode])) {
-                            $segment['departure_airport'] = $airportLookup[$departureCode];
-                        }
 
-                        if ($arrivalCode && isset($airportLookup[$arrivalCode])) {
-                            $segment['arrival_airport'] = $airportLookup[$arrivalCode];
-                        }
+                                   foreach ($flightOffer['itineraries'] as &$itinerary) {
+                        if (isset($itinerary['segments']) && is_array($itinerary['segments'])) {
+                           foreach ($itinerary['segments'] as $index => &$segment) {
+                                // Add airport_name to departure and arrival locations
+                                if (isset($segment['departure']['iataCode'])) {
+                                    $iataCode = $segment['departure']['iataCode'];
+                                    if (isset($airportLookup[$iataCode])) {
+                                        $segment['departure_airport'] = $airportLookup[$iataCode];
+                                        $departureAirport = $segment['departure_airport'];
+                                        $departureTimeZone = $airportLookupTimeZone[$iataCode];
+                                        $departureTime = $segment['departure']['at'];
+                                        $segment['departureTimeZone'] = $departureTimeZone;
+                                        $segment['departureCountry'] = $airportLookupCountry[$iataCode] ?? null;
+                                        $segment['departureCity'] = $airportLookupCity[$iataCode] ?? null;
+                                        
 
-                        $carrierCode = $segment['operating']['carrierCode'] ?? null;
-                        
-                        if ($carrierCode && isset($airlineData[$carrierCode])) {
-                            $segment['airlineLogo'] = $airlineData[$carrierCode]['logo'] ?? null;
-                            $segment['airlineLogo'] = $segment['airlineLogo'] ? substr($segment['airlineLogo'], 2) : null;
-                            $segment['airlineName'] = $airlineData[$carrierCode]['name'] ?? null;
+                                    }
+                                }
+                                if (isset($segment['arrival']['iataCode'])) {
+                                    $iataCode = $segment['arrival']['iataCode'];
+                                    if (isset($airportLookup[$iataCode])) {
+                                        $segment['arrival_airport'] = $airportLookup[$iataCode];
+                                        $segment['arrivalTimeZone'] = $airportLookupTimeZone[$iataCode];
+                                        $segment['arrivalCountry'] = $airportLookupCountry[$iataCode] ?? null;
+                                        $segment['arrivalCity'] = $airportLookupCity[$iataCode] ?? null;
+                                    
+                                        $duration = $this->getFlightDuration(
+                                            $departureTime,
+                                            $segment['arrival']['at'],
+                                            $departureTimeZone,
+                                            $segment['arrivalTimeZone'],
+                                        );
+                                        $segment['flight_duration'] = $duration;
+                                        //$segment['layover_duration'] = $duration['layover_duration']; 
+                                        if ($index > 0) {
+                        $previousSegment = $itinerary['segments'][$index - 1];
+
+                        $prevArrivalAt   = Carbon::parse($previousSegment['arrival']['at']);
+                        $thisDepartureAt = Carbon::parse($segment['departure']['at']);
+
+                        $layoverMinutes = $prevArrivalAt->diffInMinutes($thisDepartureAt);
+                        $layoverHours   = floor($layoverMinutes / 60);
+                        $layoverMins    = $layoverMinutes % 60;
+
+                        $segment['layover_data'] = [
+                            'layover_duration'   => sprintf('%dh %02dm', $layoverHours, $layoverMins),
+                            'layover_in_minutes'  => $layoverMinutes,
+                            'airport'     => $previousSegment['arrival']['iataCode'],
+                            'airport_name'=> $previousSegment['arrival_airport'] 
+                                           ?? $previousSegment['arrival']['iataCode'],
+                            'airport_country' => $previousSegment['arrivalCountry'] ?? null,
+                            'airport_city' => $previousSegment['arrivalCity'] ?? null
+                        ];
+                    }  
+                                    }
+                                }
+
+                                // Add airlineName and logo to each segment
+                                if (isset($segment['carrierCode'])) {
+                                    $carrierCode = $segment['operating']['carrierCode'];
+                                    if (isset($carriers[$carrierCode])) {
+                                        $segment['airlineName'] = $carriers[$carrierCode];
+                                    }
+                                    // Check if the logo exists for the carrier code
+                                    if (isset($airlineLogoData[$carrierCode])) {
+                                        $segment['airlineLogo'] = substr($airlineLogoData[$carrierCode], 2);
+                                        $airlinelogo = $segment['airlineLogo'];
+                                    } else {
+                                        $segment['airlineLogo'] = null; // Or set a default value if needed
+                                    }
+                                }
+                            }
                         }
                     }
+
+
+
+                    
+                    // foreach ($itinerary['segments'] as &$segment) {
+                        
+                    //     $departureCode = $segment['departure']['iataCode'] ?? null;
+                    //     $arrivalCode = $segment['arrival']['iataCode'] ?? null;
+
+                    //     if ($departureCode && isset($airportLookup[$departureCode])) {
+                    //         $segment['departure_airport'] = $airportLookup[$departureCode];
+                    //     }
+
+                    //     if ($arrivalCode && isset($airportLookup[$arrivalCode])) {
+                    //         $segment['arrival_airport'] = $airportLookup[$arrivalCode];
+                    //     }
+
+                    //     $carrierCode = $segment['operating']['carrierCode'] ?? null;
+                        
+                    //     if ($carrierCode && isset($airlineData[$carrierCode])) {
+                    //         $segment['airlineLogo'] = $airlineData[$carrierCode]['logo'] ?? null;
+                    //         $segment['airlineLogo'] = $segment['airlineLogo'] ? substr($segment['airlineLogo'], 2) : null;
+                    //         $segment['airlineName'] = $airlineData[$carrierCode]['name'] ?? null;
+                    //     }
+                    // }
                 }
             }
         }
@@ -1229,7 +1312,7 @@ public function searchMultiple(Multicity $request): JsonResponse
 
     return response()->json($flightOffers);
 }
-
+    
 private function sortCost($flightOffers)
 {
     usort($flightOffers, function ($a, $b) {
