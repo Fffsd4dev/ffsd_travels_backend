@@ -256,6 +256,7 @@ private function fetchApiData(string $url, string $accessToken, array $params): 
     // Cache the airline logos data
     $cacheKey = 'airlineLogos';
     $airlineLogos = $this->getAirlineLogos();
+  
     
     // Create a lookup for airline logos by IATA code
     $airlineLogoData = [];
@@ -491,6 +492,7 @@ private function getFlightDuration($departureTime, $arrivalTime, $departureTimeZ
             $json = File::get($jsonPath); // Read file content
             return json_decode($json, true); // Decode JSON to associative array
         });
+        
 
         foreach ($airlineLogos['data'] as $airline) {
             if (isset($airline['iata_code']) && $airline['iata_code'] === $airlineCode && isset($airline['logo'])) {
@@ -1046,15 +1048,17 @@ public function searchMultiple(Multicity $request): JsonResponse
 
     // Retrieve airline logos and create a lookup table
     $airlineLogos = $this->getAirlineLogos();
-    $airlineData = []; // Fixed variable name inconsistency
+    
+    $airlineLogoData = []; // Fixed variable name inconsistency
     foreach ($airlineLogos['data'] as $airline) {
         if (isset($airline['iata_code'], $airline['logo'], $airline['name'])) {
-            $airlineData[$airline['iata_code']] = [
+            $airlineLogoData[$airline['iata_code']] = [
                 'logo' => $airline['logo'],
                 'name' => $airline['name']
             ];
         }
     }
+
 
     // Retrieve access tokens
     $accessToken = $this->getBearerToken($request->header('Authorization'));
@@ -1163,7 +1167,8 @@ public function searchMultiple(Multicity $request): JsonResponse
                                     }
                                     // Check if the logo exists for the carrier code
                                     if (isset($airlineLogoData[$carrierCode])) {
-                                        $segment['airlineLogo'] = substr($airlineLogoData[$carrierCode], 2);
+                                    
+                                        $segment['airlineLogo'] = substr($airlineLogoData[$carrierCode]['logo'], 2);
                                         $airlinelogo = $segment['airlineLogo'];
                                     } else {
                                         $segment['airlineLogo'] = null; // Or set a default value if needed
