@@ -1157,7 +1157,7 @@ public function searchMultiple(Multicity $request): JsonResponse
 
                                 // Add airlineName and logo to each segment
                                 if (isset($segment['carrierCode'])) {
-                                    $carrierCode = $segment['operating']['carrierCode'];
+                                    $carrierCode = $segment['carrierCode'];
                                     if (isset($carriers[$carrierCode])) {
                                         $segment['airlineName'] = $carriers[$carrierCode];
                                     }
@@ -1176,27 +1176,7 @@ public function searchMultiple(Multicity $request): JsonResponse
 
 
                     
-                    // foreach ($itinerary['segments'] as &$segment) {
-                        
-                    //     $departureCode = $segment['departure']['iataCode'] ?? null;
-                    //     $arrivalCode = $segment['arrival']['iataCode'] ?? null;
-
-                    //     if ($departureCode && isset($airportLookup[$departureCode])) {
-                    //         $segment['departure_airport'] = $airportLookup[$departureCode];
-                    //     }
-
-                    //     if ($arrivalCode && isset($airportLookup[$arrivalCode])) {
-                    //         $segment['arrival_airport'] = $airportLookup[$arrivalCode];
-                    //     }
-
-                    //     $carrierCode = $segment['operating']['carrierCode'] ?? null;
-                        
-                    //     if ($carrierCode && isset($airlineData[$carrierCode])) {
-                    //         $segment['airlineLogo'] = $airlineData[$carrierCode]['logo'] ?? null;
-                    //         $segment['airlineLogo'] = $segment['airlineLogo'] ? substr($segment['airlineLogo'], 2) : null;
-                    //         $segment['airlineName'] = $airlineData[$carrierCode]['name'] ?? null;
-                    //     }
-                    // }
+                
                 }
             }
         }
