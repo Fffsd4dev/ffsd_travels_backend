@@ -1048,6 +1048,7 @@ public function searchMultiple(Multicity $request): JsonResponse
 
     // Retrieve airline logos and create a lookup table
     $airlineLogos = $this->getAirlineLogos();
+
     
     $airlineLogoData = []; // Fixed variable name inconsistency
     foreach ($airlineLogos['data'] as $airline) {
@@ -1161,15 +1162,19 @@ public function searchMultiple(Multicity $request): JsonResponse
 
                                 // Add airlineName and logo to each segment
                                 if (isset($segment['carrierCode'])) {
+                                    
                                     $carrierCode = $segment['carrierCode'];
                                     if (isset($carriers[$carrierCode])) {
                                         $segment['airlineName'] = $carriers[$carrierCode];
+
                                     }
                                     // Check if the logo exists for the carrier code
                                     if (isset($airlineLogoData[$carrierCode])) {
                                     
                                         $segment['airlineLogo'] = substr($airlineLogoData[$carrierCode]['logo'], 2);
                                         $airlinelogo = $segment['airlineLogo'];
+                                        $segment['airlineName']= $airlineLogoData[$carrierCode]['name'] ?? null;
+                                    
                                     } else {
                                         $segment['airlineLogo'] = null; // Or set a default value if needed
                                     }
@@ -1267,6 +1272,7 @@ private function fetchFlightOffers(string $url, string $accessToken, array $payl
                         ->withHeaders(['Ama-Client' => $amaClient]) // Wrap the string in an associative array
                         ->post($url, $payload);
         // Check if the response is successful and return decoded response as array
+    
         if ($response->successful()) {
             $responseData = $response->json();
             //load airport information 
