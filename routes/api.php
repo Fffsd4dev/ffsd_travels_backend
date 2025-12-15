@@ -76,6 +76,7 @@ Route::get('get/advertisement', [AdvertisementController::class, 'show']);
 
 // Route to retrieve a specific advertisement category by ID
 Route::get('get/category/advert/{id}', [AdvertCategory::class, 'getCategoryById']);
+ Route::get('reviews/all', [ReviewController::class, 'getPublished']);
 Route::middleware('auth:sanctum')->group(function () {
     
     Route::get('admin/blog/categories', [BlogCategory::class, 'index']);              // Get all categories
@@ -88,18 +89,18 @@ Route::middleware('auth:sanctum')->group(function () {
     
      Route::get('admin/reviews/all', [ReviewController::class, 'index']);
 
+     
     // Create a review
-    Route::post('admin/reviews/all', [ReviewController::class, 'store']);
+    Route::post('admin/create/review', [ReviewController::class, 'store']);
 
     // Get a single review
-    Route::get('admin/reviews/get/{id}', [ReviewController::class, 'show']);
+    Route::get('admin/review/single/{id}', [ReviewController::class, 'show']);
 
     // Update a review
-    Route::put('admin/reviews/{id}', [ReviewController::class, 'update']);
-    Route::post('admin/reviews/update/{id}', [ReviewController::class, 'update']);
+    Route::post('admin/review/update/{id}', [ReviewController::class, 'update']);
 
     // Delete a review
-    Route::post('admin/delete/reviews/{id}', [ReviewController::class, 'destroy']);
+    Route::post('admin/delete/review/{id}', [ReviewController::class, 'destroy']);
 
 
 Route::get('admin/blogs/get', [BlogController::class, 'index']);
