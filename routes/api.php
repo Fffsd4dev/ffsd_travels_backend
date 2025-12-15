@@ -86,20 +86,20 @@ Route::middleware('auth:sanctum')->group(function () {
     
     
     
-     Route::get('/reviews', [ReviewController::class, 'index']);
+     Route::get('admin/reviews/all', [ReviewController::class, 'index']);
 
     // Create a review
-    Route::post('/reviews', [ReviewController::class, 'store']);
+    Route::post('admin/reviews/all', [ReviewController::class, 'store']);
 
     // Get a single review
-    Route::get('/reviews/{id}', [ReviewController::class, 'show']);
+    Route::get('admin/reviews/get/{id}', [ReviewController::class, 'show']);
 
     // Update a review
-    Route::put('/reviews/{id}', [ReviewController::class, 'update']);
-    Route::post('/reviews/update/{id}', [ReviewController::class, 'update']);
+    Route::put('admin/reviews/{id}', [ReviewController::class, 'update']);
+    Route::post('admin/reviews/update/{id}', [ReviewController::class, 'update']);
 
     // Delete a review
-    Route::post('/reviews/{id}', [ReviewController::class, 'destroy']);
+    Route::post('admin/delete/reviews/{id}', [ReviewController::class, 'destroy']);
 
 
 Route::get('admin/blogs/get', [BlogController::class, 'index']);
