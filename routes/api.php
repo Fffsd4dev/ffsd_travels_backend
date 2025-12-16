@@ -91,7 +91,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('reviews/all', [ReviewController::class, 'index']);
 
-    Route::post('reviews', [ReviewController::class, 'store']);
+    Route::post('create/review', [ReviewController::class, 'store']);
 
     Route::get('reviews/single/{review}', [ReviewController::class, 'show']);
 

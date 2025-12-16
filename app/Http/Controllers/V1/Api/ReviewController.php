@@ -56,7 +56,7 @@ class ReviewController extends Controller
             'user_name' => 'required|string|max:255',
             'rating'    => 'required|integer|min:1|max:5',
             'comment'   => 'nullable|string',
-            'status'    => 'nullable|in:pending,approved,rejected',
+            'status'    => 'required|in:pending,approved,rejected',
         ]);
 
         $validated['status'] ??= 'pending';
@@ -95,7 +95,7 @@ class ReviewController extends Controller
             'user_name' => 'sometimes|string|max:255',
             'rating'    => 'sometimes|integer|min:1|max:5',
             'comment'   => 'nullable|string',
-            'status'    => 'sometimes|in:pending,approved,rejected',
+            'status'    => 'required|in:pending,approved,rejected',
         ]);
 
         $review->update($validated);
