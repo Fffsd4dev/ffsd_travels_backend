@@ -1,73 +1,61 @@
 name: Deploy Laravel Backend
 
 on:
-push:
-branches: ["main"]
+  push:
+    branches: ["main"]
 
 permissions:
-contents: read
+  contents: read
 
 jobs:
-deploy:
-runs-on: ubuntu-latest
+  deploy:
+    runs-on: ubuntu-latest
 
-```
-steps:
-  - name: Checkout Code
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-  - name: Set up PHP
-    uses: shivammathur/setup-php@v2
-    with:
-      php-version: "8.2"
-      extensions: mbstring, intl, bcmath, pdo, mysql, zip
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: mbstring, intl, bcmath, pdo, mysql, zip
 
-  - name: Validate Composer
-    run: composer validate --strict
+      - name: Validate Composer
+        run: composer validate --strict
 
-  - name: Install Dependencies (CI Check)
-    run: composer install --no-dev --prefer-dist --no-progress --optimize-autoloader
+      - name: Install Dependencies (CI Check)
+        run: composer install --no-dev --prefer-dist --no-progress --optimize-autoloader
 
-  - name: Setup SSH
-    run: |
-      mkdir -p ~/.ssh
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.SERVER_IP }}" >> ~/.ssh/known_hosts || true
 
-      echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
-      chmod 600 ~/.ssh/id_rsa
+      - name: Deploy Files
+        run: |
+          rsync -az \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.env' \
+            --exclude='storage/logs/*' \
+            -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" \
+            ./ deploy@${{ secrets.SERVER_IP }}:${{ secrets.DEPLOY_PATH }}
 
-      ssh-keyscan -H "${{ secrets.SERVER_IP }}" >> ~/.ssh/known_hosts || true
-
-  - name: Deploy Files
-    run: |
-      rsync -az --delete \
-        --exclude='.git' \
-        --exclude='.github' \
-        --exclude='.env' \
-        --exclude='storage/logs/*' \
-        -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" \
-        ./ deploy@${{ secrets.SERVER_IP }}:${{ secrets.DEPLOY_PATH }}
-
-  - name: Run Laravel Deployment Commands
-    run: |
-      ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no deploy@${{ secrets.SERVER_IP }} "
-        cd ${{ secrets.DEPLOY_PATH }} &&
-
-        php artisan down || true &&
-
-        composer install --no-dev --optimize-autoloader --no-interaction &&
-
-        php artisan migrate --force &&
-
-        php artisan optimize:clear &&
-
-        php artisan config:cache &&
-        php artisan route:cache &&
-        php artisan view:cache &&
-
-        php artisan queue:restart || true &&
-
-        chmod -R 775 storage bootstrap/cache &&
-
-        php artisan up
-      "
-```
+      - name: Run Laravel Deployment Commands
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no deploy@${{ secrets.SERVER_IP }} "
+            cd ${{ secrets.DEPLOY_PATH }} &&
+            php artisan down || true &&
+            composer install --no-dev --optimize-autoloader --no-interaction &&
+            php artisan migrate --force &&
+            php artisan optimize:clear &&
+            php artisan config:cache &&
+            php artisan route:cache &&
+            php artisan view:cache &&
+            php artisan queue:restart || true &&
+            chmod -R 775 storage bootstrap/cache &&
+            php artisan up
+          "
