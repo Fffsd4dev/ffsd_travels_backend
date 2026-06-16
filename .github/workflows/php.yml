@@ -1,0 +1,59 @@
+name: Deploy Laravel Backend
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: mbstring, intl, bcmath, pdo, mysql, zip
+
+      - name: Validate Composer
+        run: composer validate --strict
+
+      - name: Install Dependencies (CI check only)
+        run: composer install --no-dev --prefer-dist --no-progress
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+
+          # write private key safely
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+          # add server to known hosts safely (FIXED)
+          ssh-keyscan -H "${{ secrets.SERVER_IP }}" >> ~/.ssh/known_hosts || true
+
+      - name: Deploy to Server (rsync)
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" \
+            ./ deploy@${{ secrets.SERVER_IP }}:/home/travels.ffsdgroup.com/public_html
+
+      - name: Run Laravel Commands on Server
+        run: |
+          ssh -i ~/.ssh/id_rsa deploy@${{ secrets.SERVER_IP }} "
+            cd /home/travels.ffsdgroup.com/public_html &&
+
+            composer install --no-dev --optimize-autoloader &&
+
+            php artisan migrate --force || true &&
+
+            php artisan config:cache &&
+            php artisan route:cache &&
+            php artisan view:cache
+          "
