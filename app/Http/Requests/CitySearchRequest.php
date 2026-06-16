@@ -24,7 +24,7 @@ class CitySearchRequest extends FormRequest
     {
         return [
             'keyword' => 'required|string|min:3|max:20',
-'subType' => 'required|string|min:2|max:15',
+'subType' => 'required|string|min:3|max:15',
         ];
     }
 
