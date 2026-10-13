@@ -1,3 +1,4 @@
+
 name: Deploy Laravel Backend
 
 on:
@@ -25,38 +26,133 @@ jobs:
         run: composer validate --strict
 
       - name: Install Dependencies (CI Check)
-        run: composer install --no-dev --prefer-dist --no-progress --optimize-autoloader
+        run: |
+          composer install \
+            --no-dev \
+            --prefer-dist \
+            --no-progress \
+            --optimize-autoloader \
+            --no-interaction
 
       - name: Setup SSH
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
         run: |
+          set -euo pipefail
+
           mkdir -p ~/.ssh
-          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "${{ secrets.SERVER_IP }}" >> ~/.ssh/known_hosts || true
+
+          ssh-keyscan -H "$SERVER_IP" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Verify SSH and Deployment Path
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+
+          ssh -i ~/.ssh/id_rsa \
+            -o StrictHostKeyChecking=yes \
+            "deploy@$SERVER_IP" \
+            "cd '$DEPLOY_PATH' && test -f artisan && test -f .env"
 
       - name: Deploy Files
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
+          set -euo pipefail
+
           rsync -az \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='.env' \
-            --exclude='storage/logs/*' \
-            -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" \
-            ./ deploy@${{ secrets.SERVER_IP }}:${{ secrets.DEPLOY_PATH }}
+            --no-times \
+            --no-perms \
+            --no-owner \
+            --no-group \
+            --exclude='/.git/' \
+            --exclude='/.github/' \
+            --exclude='/.env' \
+            --exclude='/storage/' \
+            --exclude='/bootstrap/cache/' \
+            --exclude='/vendor/' \
+            -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes" \
+            ./ "deploy@$SERVER_IP:$DEPLOY_PATH/"
 
       - name: Run Laravel Deployment Commands
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no deploy@${{ secrets.SERVER_IP }} "
-            cd ${{ secrets.DEPLOY_PATH }} &&
-            php artisan down || true &&
-            composer install --no-dev --optimize-autoloader --no-interaction &&
-            php artisan migrate --force &&
-            php artisan optimize:clear &&
-            php artisan storage:link &&
-            php artisan config:cache &&
-            php artisan route:cache &&
-            php artisan view:cache &&
-            php artisan queue:restart || true &&
-            chmod -R 775 storage bootstrap/cache &&
-            php artisan up
-          "
+          set -euo pipefail
+
+          ssh -i ~/.ssh/id_rsa \
+            -o StrictHostKeyChecking=yes \
+            "deploy@$SERVER_IP" \
+            "cd '$DEPLOY_PATH' && bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+
+          maintenance_enabled=0
+
+          cleanup() {
+            if [ "$maintenance_enabled" -eq 1 ]; then
+              php artisan up || true
+            fi
+          }
+
+          trap cleanup EXIT
+
+          # Protect production configuration.
+          test -f .env
+          test -f artisan
+
+          # Ensure Laravel runtime directories exist.
+          mkdir -p \
+            storage/app \
+            storage/framework/cache/data \
+            storage/framework/sessions \
+            storage/framework/views \
+            storage/framework/testing \
+            storage/logs \
+            bootstrap/cache
+
+          # Verify that deploy can write to Laravel's runtime directories.
+          if [ ! -w storage/framework ] || [ ! -w bootstrap/cache ]; then
+            echo "ERROR: deploy cannot write to storage/framework or bootstrap/cache."
+            echo "Configure the appropriate server ownership, ACL, or group permissions."
+            exit 1
+          fi
+
+          # Enter maintenance mode.
+          php artisan down
+          maintenance_enabled=1
+
+          # Install production dependencies.
+          composer install \
+            --no-dev \
+            --prefer-dist \
+            --optimize-autoloader \
+            --no-interaction \
+            --no-progress
+
+          # Apply database migrations.
+          php artisan migrate --force
+
+          # Clear and rebuild Laravel caches.
+          php artisan optimize:clear
+          php artisan storage:link
+          php artisan config:cache
+          php artisan route:cache
+          php artisan view:cache
+
+          # Gracefully restart queue workers.
+          php artisan queue:restart || true
+
+          # Restore the application.
+          php artisan up
+          maintenance_enabled=0
+
+          echo "Laravel deployment completed successfully."
+          REMOTE
