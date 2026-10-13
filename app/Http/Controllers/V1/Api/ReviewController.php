@@ -5,57 +5,77 @@ namespace App\Http\Controllers\V1\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ReviewModel;
 use Illuminate\Http\Request;
-use Illuminate\Validation\ValidationException;
 
 class ReviewController extends Controller
 {
     /**
-     * List all reviews
+     * List all reviews (ADMIN & SYSTEM ADMIN ONLY)
+     * Fixed: Added Request $request to parameters
      */
-    public function index()
+    public function index(Request $request)
     {
+        $this->checkAccess($request);
+        
+        $reviews = ReviewModel::latest()->paginate(15);
+
         return response()->json([
             'status' => true,
-            'reviews' => ReviewModel::latest()->get()
+            'data'   => $reviews->items(),
+            'meta'   => [
+                'total'        => $reviews->total(),
+                'per_page'     => $reviews->perPage(),
+                'current_page' => $reviews->currentPage(),
+                'last_page'    => $reviews->lastPage(),
+            ]
         ]);
     }
 
     /**
-     * Create a new review
+     * Published reviews only (PUBLIC)
+     */
+    public function getPublished()
+    {
+        $reviews = ReviewModel::where('status', 'approved')
+            ->latest()
+            ->paginate(15);
+
+        return response()->json([
+            'status'  => true,
+            'reviews' => $reviews,
+        ]);
+    }
+
+    /**
+     * Create review (ADMIN & SYSTEM ADMIN ONLY)
      */
     public function store(Request $request)
     {
+        $this->checkAccess($request);
+
         $validated = $request->validate([
             'user_name' => 'required|string|max:255',
-            'rating'    => 'required|integer|min(1)|max(5)',
+            'rating'    => 'required|integer|min:1|max:5',
             'comment'   => 'nullable|string',
-            'status'    => 'nullable|in:pending,approved,rejected'
+            'status'    => 'required|in:pending,approved,rejected',
         ]);
 
-        $validated['status'] = $validated['status'] ?? 'pending';
+        $validated['status'] ??= 'pending';
 
         $review = ReviewModel::create($validated);
 
         return response()->json([
-            'status' => true,
+            'status'  => true,
             'message' => 'Review created successfully',
-            'review' => $review
+            'review'  => $review
         ], 201);
     }
 
     /**
-     * Get single review
+     * Show single review (ADMIN & SYSTEM ADMIN ONLY)
      */
-    public function show($id)
+    public function show(Request $request, ReviewModel $review)
     {
-        $review = ReviewModel::find($id);
-
-        if (!$review) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Review not found'
-            ], 404);
-        }
+        $this->checkAccess($request);
 
         return response()->json([
             'status' => true,
@@ -64,54 +84,53 @@ class ReviewController extends Controller
     }
 
     /**
-     * Update a review
+     * Update review (ADMIN & SYSTEM ADMIN ONLY)
+     * Fixed: Removed $id. Laravel already finds the record via ReviewModel $review.
      */
-    public function update(Request $request, $id)
+    public function update(Request $request, ReviewModel $review)
     {
-        $review = ReviewModel::find($id);
-
-        if (!$review) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Review not found'
-            ], 404);
-        }
+        $this->checkAccess($request);
 
         $validated = $request->validate([
             'user_name' => 'sometimes|string|max:255',
-            'rating'    => 'sometimes|integer|min(1)|max(5)',
+            'rating'    => 'sometimes|integer|min:1|max:5',
             'comment'   => 'nullable|string',
-            'status'    => 'nullable|in:pending,approved,rejected'
+            'status'    => 'required|in:pending,approved,rejected',
         ]);
 
         $review->update($validated);
 
         return response()->json([
-            'status' => true,
+            'status'  => true,
             'message' => 'Review updated successfully',
-            'review' => $review
+            'review'  => $review
         ]);
     }
 
     /**
-     * Delete a review
+     * Delete review (ADMIN & SYSTEM ADMIN ONLY)
      */
-    public function destroy($id)
+    public function destroy(Request $request, ReviewModel $review)
     {
-        $review = ReviewModel::find($id);
-
-        if (!$review) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Review not found'
-            ], 404);
-        }
+        $this->checkAccess($request);
 
         $review->delete();
 
         return response()->json([
-            'status' => true,
+            'status'  => true,
             'message' => 'Review deleted successfully'
         ]);
+    }
+
+    /**
+     * Restrict admin-only actions
+     */
+    private function checkAccess(Request $request): void
+    {
+        $user = $request->user();
+
+        if (!$user || !in_array($user->user_type, ['system_admin', 'admin'])) {
+            abort(403, 'Unauthorized action.');
+        }
     }
 }

@@ -28,7 +28,6 @@ class BlogController extends Controller
         if ($request->hasFile('featured_image')) {
             $imagePath = $request->file('featured_image')->store('blog_images', 'public');
         }
-
         // Create a new blog post
         $blog = Blog::create([
             'title' => $request->title,
