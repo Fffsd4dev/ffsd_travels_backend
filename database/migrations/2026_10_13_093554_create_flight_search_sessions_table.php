@@ -1,3 +1,4 @@
+
 <?php
 
 use Illuminate\Database\Migrations\Migration;
@@ -12,22 +13,18 @@ return new class extends Migration
             $table->id();
 
             // Stable reference shared across search, confirmation and booking.
-            $table->string('ama_client_ref', 40)->unique();
+            $table->string('ama_client_ref', 40);
 
             // Optional authenticated user.
             $table->unsignedBigInteger('user_id')->nullable();
 
-            $table->string('status', 30)
-                ->default('searching')
-                ->index();
+            $table->string('status', 30)->default('searching');
 
-            $table->char('search_fingerprint', 64)
-                ->nullable()
-                ->index();
+            $table->char('search_fingerprint', 64)->nullable();
 
             $table->string('confirmed_offer_key', 100)->nullable();
 
-            $table->uuid('idempotency_key')->nullable()->unique();
+            $table->uuid('idempotency_key')->nullable();
 
             $table->json('search_criteria')->nullable();
 
@@ -35,13 +32,6 @@ return new class extends Migration
             $table->timestamp('expires_at')->nullable();
 
             $table->timestamps();
-
-            $table->index(['user_id', 'status']);
-
-            $table->foreign('user_id')
-                ->references('id')
-                ->on('users')
-                ->nullOnDelete();
         });
     }
 
