@@ -14,13 +14,8 @@ return new class extends Migration
         Schema::create('wallets', function (Blueprint $table) {
             $table->id();
 
-            $table->foreignId('company_id')
-                ->constrained('company_models')
-                ->cascadeOnDelete();
-
-            $table->foreignId('created_by_user_id')
-                ->constrained('users')
-                ->cascadeOnDelete();
+            $table->unsignedBigInteger('company_id');
+            $table->unsignedBigInteger('created_by_user_id');
 
             $table->decimal('total_deposit', 12, 2)->default(0);
             $table->decimal('total_spent', 12, 2)->default(0);
