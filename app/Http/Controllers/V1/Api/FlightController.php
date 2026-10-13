@@ -788,123 +788,139 @@ class FlightController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    private function fetchApiData(
-        string $url,
-        string $accessToken,
-        array $params
-    ): array {
-        try {
-            $response = $this->amadeusRequest()
-                ->withToken($accessToken)
-                ->get($url, $params);
 
-            $responseData = $response->json();
+private function fetchApiData(
+    string $url,
+    string $accessToken,
+    array $params,
+    array $additionalHeaders = []
+): array {
+    try {
+        $response = $this->amadeusRequest()
+            ->withToken($accessToken)
+            ->withHeaders($additionalHeaders)
+            ->get($url, $params);
 
-            if (!is_array($responseData)) {
-                $responseData = [
-                    'message' => 'Invalid response from Amadeus.',
-                ];
-            }
+        $responseData = $response->json();
 
-            $responseData['httpCode'] = $response->status();
-
-            if (
-                isset($responseData['data']) &&
-                is_array($responseData['data'])
-            ) {
-                $carriers =
-                    $responseData['dictionaries']['carriers'] ?? [];
-
-                $this->enrichOffers(
-                    $responseData['data'],
-                    $carriers
-                );
-            }
-
-            return $responseData;
-        } catch (Throwable $e) {
-            Log::error('Amadeus flight search failed.', [
-                'exception' => $e::class,
-            ]);
-
-            return [
-                'errors' => [[
-                    'title' => 'Flight search failed',
-                    'detail' => 'Unable to retrieve flight offers.',
-                ]],
-                'httpCode' => 502,
+        if (!is_array($responseData)) {
+            $responseData = [
+                'message' => 'Invalid response from Amadeus.',
             ];
         }
-    }
 
-    public function searchFlights(
-        FlightSearchRequest $request
-    ): JsonResponse {
-        $data = $request->validated();
+        $responseData['httpCode'] = $response->status();
 
-        $url = $this->amadeusConfig('flight_search');
+        if (
+            isset($responseData['data']) &&
+            is_array($responseData['data'])
+        ) {
+            $carriers =
+                $responseData['dictionaries']['carriers'] ?? [];
 
-        if (!is_string($url) || trim($url) === '') {
-            return response()->json([
-                'message' => 'Flight search endpoint is not configured.',
-            ], 500);
+            $this->enrichOffers(
+                $responseData['data'],
+                $carriers
+            );
         }
 
-        $accessToken = $this->getAccessToken();
+        return $responseData;
+    } catch (Throwable $e) {
+        Log::error('Amadeus flight search failed.', [
+            'exception' => $e::class,
+            'message' => $e->getMessage(),
+        ]);
+
+        return [
+            'errors' => [[
+                'title' => 'Flight search failed',
+                'detail' => 'Unable to retrieve flight offers.',
+            ]],
+            'httpCode' => 502,
+        ];
+    }
+}
+
+
+   
+    
+public function searchFlights(
+    FlightSearchRequest $request
+): JsonResponse {
+    $data = $request->validated();
+
+    $url = $this->amadeusConfig('flight_search');
+
+    if (!is_string($url) || trim($url) === '') {
+        return response()->json([
+            'message' => 'Flight search endpoint is not configured.',
+        ], 500);
+    }
+
+    $accessToken = $this->getAccessToken();
+
+    if (!$accessToken) {
+        return response()->json([
+            'message' => 'Unable to authenticate with Amadeus.',
+        ], 502);
+    }
+
+    $data['max'] = 250;
+
+    // Generate and persist the reference before calling Amadeus.
+    $session = $this->createFlightSearchSession($data);
+
+    $amaClientRef = $session->ama_client_ref;
+
+    // Send the generated reference to Amadeus as a custom header.
+    $result = $this->fetchApiData(
+        $url,
+        $accessToken,
+        $data,
+        [
+            'ama-client-ref' => $amaClientRef,
+        ]
+    );
+
+    if ($this->hasAccessTokenExpired($result)) {
+        $accessToken = $this->getAccessToken(
+            true,
+            $accessToken
+        );
 
         if (!$accessToken) {
             return response()->json([
-                'message' => 'Unable to authenticate with Amadeus.',
+                'message' => 'Unable to refresh Amadeus authentication.',
+                'ama_client_ref' => $amaClientRef,
             ], 502);
         }
 
-        $data['max'] = 250;
-
-        $session = $this->createFlightSearchSession($data);
-
+        // Reuse the same reference when retrying.
         $result = $this->fetchApiData(
             $url,
             $accessToken,
-            $data
-        );
-
-        if ($this->hasAccessTokenExpired($result)) {
-            $accessToken = $this->getAccessToken(
-                true,
-                $accessToken
-            );
-
-            if (!$accessToken) {
-                return response()->json([
-                    'message' => 'Unable to refresh Amadeus authentication.',
-                ], 502);
-            }
-
-            $result = $this->fetchApiData(
-                $url,
-                $accessToken,
-                $data
-            );
-        }
-
-        if (
-            isset($result['data']) &&
-            is_array($result['data'])
-        ) {
-            $this->applyMarkupToOffers($result['data']);
-            $result['data'] = $this->sortCost($result['data']);
-        }
-
-        // Never return the provider's access token.
-        unset($result['accessToken'], $result['client']);
-
-        $result['ama_client_ref'] = $session->ama_client_ref;
-
-        return response()->json(
-            $result,
-            $result['httpCode'] ?? 200
+            $data,
+            [
+                'ama-client-ref' => $amaClientRef,
+            ]
         );
     }
+
+    if (isset($result['data']) && is_array($result['data'])) {
+        $this->applyMarkupToOffers($result['data']);
+        $result['data'] = $this->sortCost($result['data']);
+    }
+
+    unset($result['accessToken'], $result['client']);
+
+    $result['ama_client_ref'] = $amaClientRef;
+
+    return response()->json(
+        $result,
+        $result['httpCode'] ?? 200
+    );
+}
+
 
     /*
     |--------------------------------------------------------------------------
@@ -912,156 +928,170 @@ class FlightController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    private function fetchFlightOffers(
-        string $url,
-        string $accessToken,
-        array $payload,
-        ?string $amaClient
-    ): array {
-        try {
-            $request = $this->amadeusRequest()
-                ->withToken($accessToken);
-
-            if ($amaClient !== null && $amaClient !== '') {
-                $request = $request->withHeaders([
-                    'Ama-Client' => $amaClient,
-                ]);
-            }
-
-            $response = $request->post($url, $payload);
-            $data = $response->json();
-
-            if (!is_array($data)) {
-                $data = [
-                    'errors' => [[
-                        'title' => 'Invalid response from Amadeus.',
-                    ]],
-                ];
-            }
-
-            $data['httpCode'] = $response->status();
-
-            return $data;
-        } catch (Throwable $e) {
-            Log::error('Multicity flight search failed.', [
-                'exception' => $e::class,
-            ]);
-
-            return [
-                'errors' => [[
-                    'title' => 'Flight search failed',
-                    'detail' => 'Unable to retrieve flight offers.',
-                ]],
-                'httpCode' => 502,
-            ];
-        }
-    }
-
-    public function searchMultiple(
-        Multicity $request
-    ): JsonResponse {
-        $data = $request->validated();
+private function fetchFlightOffers(
+    string $url,
+    string $accessToken,
+    array $payload,
+    ?string $amaClientRef = null
+): array {
+    try {
+        $request = $this->amadeusRequest()
+            ->withToken($accessToken);
 
         if (
-            !isset($data['searchCriteria']) ||
-            !is_array($data['searchCriteria'])
+            is_string($amaClientRef) &&
+            trim($amaClientRef) !== ''
         ) {
-            return response()->json([
-                'message' => 'The searchCriteria field is required.',
-            ], 422);
+            $request = $request->withHeaders([
+                'ama-client-ref' => trim($amaClientRef),
+            ]);
         }
 
-        $url = $this->amadeusConfig('flight_search');
+        $response = $request->post($url, $payload);
 
-        if (!is_string($url) || trim($url) === '') {
-            return response()->json([
-                'message' => 'Flight search endpoint is not configured.',
-            ], 500);
+        $data = $response->json();
+
+        if (!is_array($data)) {
+            $data = [
+                'errors' => [[
+                    'title' => 'Invalid response from Amadeus.',
+                ]],
+            ];
         }
 
-        $data['searchCriteria']['maxFlightOffers'] = 250;
+        $data['httpCode'] = $response->status();
 
-        $accessToken = $this->getAccessToken();
+        return $data;
+    } catch (Throwable $e) {
+        Log::error('Multicity flight search failed.', [
+            'exception' => $e::class,
+            'message' => $e->getMessage(),
+        ]);
+
+        return [
+            'errors' => [[
+                'title' => 'Flight search failed',
+                'detail' => 'Unable to retrieve flight offers.',
+            ]],
+            'httpCode' => 502,
+        ];
+    }
+}
+
+
+  
+public function searchMultiple(
+    Multicity $request
+): JsonResponse {
+    $data = $request->validated();
+
+    if (
+        !isset($data['searchCriteria']) ||
+        !is_array($data['searchCriteria'])
+    ) {
+        return response()->json([
+            'message' => 'The searchCriteria field is required.',
+        ], 422);
+    }
+
+    $url = $this->amadeusConfig('flight_search');
+
+    if (!is_string($url) || trim($url) === '') {
+        return response()->json([
+            'message' => 'Flight search endpoint is not configured.',
+        ], 500);
+    }
+
+    $data['searchCriteria']['maxFlightOffers'] = 250;
+
+    $accessToken = $this->getAccessToken();
+
+    if (!$accessToken) {
+        return response()->json([
+            'message' => 'Unable to authenticate with Amadeus.',
+        ], 502);
+    }
+
+    /*
+     * Create and persist a session for this multicity search.
+     * Ensure createFlightSearchSession() supports the nested
+     * searchCriteria structure used by Multicity.
+     */
+    $session = $this->createFlightSearchSession($data);
+
+    $amaClientRef = $session->ama_client_ref;
+
+    // Send the generated reference to Amadeus.
+    $result = $this->fetchFlightOffers(
+        $url,
+        $accessToken,
+        $data,
+        $amaClientRef
+    );
+
+    if ($this->hasAccessTokenExpired($result)) {
+        $accessToken = $this->getAccessToken(
+            true,
+            $accessToken
+        );
 
         if (!$accessToken) {
             return response()->json([
-                'message' => 'Unable to authenticate with Amadeus.',
+                'message' => 'Unable to refresh Amadeus authentication.',
+                'ama_client_ref' => $amaClientRef,
             ], 502);
         }
 
-        // ama-client-ref is a reference, not a bearer token.
-        $amaClient = trim(
-            (string) $request->header('ama-client-ref')
-        );
-
-        if ($amaClient === '') {
-            $amaClient = null;
-        }
-
+        // Reuse the same reference when retrying.
         $result = $this->fetchFlightOffers(
             $url,
             $accessToken,
             $data,
-            $amaClient
-        );
-
-        if ($this->hasAccessTokenExpired($result)) {
-            $accessToken = $this->getAccessToken(
-                true,
-                $accessToken
-            );
-
-            if (!$accessToken) {
-                return response()->json([
-                    'message' => 'Unable to refresh Amadeus authentication.',
-                ], 502);
-            }
-
-            $result = $this->fetchFlightOffers(
-                $url,
-                $accessToken,
-                $data,
-                $amaClient
-            );
-        }
-
-        if (
-            isset($result['data']) &&
-            is_array($result['data'])
-        ) {
-            if (!empty($data['extra_bag'])) {
-                $result['data'] = $this->GetExtraBagsProvider(
-                    $result['data']
-                );
-            }
-
-            $carriers = $result['dictionaries']['carriers'] ?? [];
-
-            $this->enrichOffers(
-                $result['data'],
-                $carriers
-            );
-
-            $this->applyMarkupToOffers($result['data']);
-
-            $result['data'] = $this->sortCost(
-                $result['data']
-            );
-
-            if (isset($result['meta'])) {
-                $result['meta']['count'] = count(
-                    $result['data']
-                );
-            }
-        }
-
-        unset($result['accessToken'], $result['client']);
-
-        return response()->json(
-            $result,
-            $result['httpCode'] ?? 200
+            $amaClientRef
         );
     }
+
+    if (
+        isset($result['data']) &&
+        is_array($result['data'])
+    ) {
+        if (!empty($data['extra_bag'])) {
+            $result['data'] = $this->GetExtraBagsProvider(
+                $result['data']
+            );
+        }
+
+        $carriers = $result['dictionaries']['carriers'] ?? [];
+
+        $this->enrichOffers(
+            $result['data'],
+            $carriers
+        );
+
+        $this->applyMarkupToOffers($result['data']);
+
+        $result['data'] = $this->sortCost(
+            $result['data']
+        );
+
+        if (isset($result['meta'])) {
+            $result['meta']['count'] = count(
+                $result['data']
+            );
+        }
+    }
+
+    unset($result['accessToken'], $result['client']);
+
+    // Return the reference to the API consumer.
+    $result['ama_client_ref'] = $amaClientRef;
+
+    return response()->json(
+        $result,
+        $result['httpCode'] ?? 200
+    );
+}
+
 
     /*
     |--------------------------------------------------------------------------
