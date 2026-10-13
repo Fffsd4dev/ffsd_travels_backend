@@ -1,200 +1,645 @@
 <?php
-
 namespace App\Http\Controllers\V1\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\FlightSearchSession;
+use App\Models\Payment;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use App\Models\payment as Payment;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Throwable;
 
 class PaymentController extends Controller
 {
+    private const PAYSTACK_INITIALIZE_URL =
+        'https://api.paystack.co/transaction/initialize';
+
+    private const PAYSTACK_VERIFY_URL =
+        'https://api.paystack.co/transaction/verify/';
+
     /**
-     * Initiate a payment request and save reference if successful
+     * Initiate payment using the confirmed flight session.
+     *
+     * Required headers:
+     *   ama-client-ref: FFSD-000001
+     *   Idempotency-Key: UUID saved against the confirmed session
+     *
+     * The payable amount and currency are read from the database,
+     * not from the request body.
      */
-    public function initiatePay(Request $request)
+    public function initiatePay(Request $request): JsonResponse
     {
-        // Validate incoming request data
         $validator = Validator::make($request->all(), [
-            'amount' => 'required|numeric|min:1', // Amount must be positive
-            'paid_by_email' => 'required|email',
-            'user_id' => 'nullable|integer|exists:users,id',
-            'flight_order_id' => 'nullable|integer|exists:flight_orders,id',
-            'paid_by_email' => 'nullable|email',
-            'paid_by_user_id' => 'nullable|integer|exists:users,id',
-            'paid_by_company_id' => 'nullable|integer|exists:companies,id',
-            'flight_pnr' => 'nullable|string',
-            'flight_am_order_id' => 'nullable|string',
-            'wallet_id' => 'nullable|integer|exists:wallets,id',
+            'paid_by_email' => ['required', 'email', 'max:255'],
+            'user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'flight_order_id' => [
+                'nullable',
+                'integer',
+                'exists:flight_orders,id',
+            ],
+            'paid_by_user_id' => [
+                'nullable',
+                'integer',
+                'exists:users,id',
+            ],
+            'paid_by_company_id' => [
+                'nullable',
+                'integer',
+                'exists:companies,id',
+            ],
+            'flight_pnr' => ['nullable', 'string', 'max:255'],
+            'flight_am_order_id' => ['nullable', 'string', 'max:255'],
+            'wallet_id' => [
+                'nullable',
+                'integer',
+                'exists:wallets,id',
+            ],
         ]);
 
-        // Return validation errors if any
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed.',
+                'errors' => $validator->errors(),
+            ], 422);
         }
 
-        // Get validated data
-        $validatedData = $validator->validated();
+        $amaClientRef = trim(
+            (string) $request->header('ama-client-ref', '')
+        );
 
-        // Generate a unique payment reference
-        $validatedData['payment_reference'] = $this->generate_id();
+        $idempotencyKey = trim(
+            (string) $request->header('idempotency-key', '')
+        );
 
-        // Initiate payment link and handle success or failure
-        $paymentLinkResponse = $this->generate_link($validatedData);
-        if ($paymentLinkResponse['status']) {
-            // Save payment reference if the initiation is successful
-            $payment = $this->save_reference($validatedData);
+        if ($amaClientRef === '' || ! Str::isUuid($idempotencyKey)) {
             return response()->json([
-                'message' => 'Payment initiated successfully.',
+                'success' => false,
+                'message' => 'Valid ama-client-ref and Idempotency-Key headers are required.',
+            ], 422);
+        }
+
+        $secretKey = config('services.paystack.secret_key');
+
+        if (! is_string($secretKey) || $secretKey === '') {
+            Log::error('Paystack secret key is not configured.');
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Payment service is not configured.',
+            ], 500);
+        }
+
+        $data = $validator->validated();
+
+        /*
+         * Lock the session while checking it and creating the payment.
+         * The database unique constraint on payments.idempotency_key
+         * should also be present to protect against duplicate records.
+         */
+        try {
+            $result = DB::transaction(function () use (
+                $amaClientRef,
+                $idempotencyKey,
+                $data
+            ) {
+                $session = FlightSearchSession::query()
+                    ->where('ama_client_ref', $amaClientRef)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $session) {
+                    return [
+                        'error' => 'Flight search session was not found.',
+                        'status' => 404,
+                    ];
+                }
+
+                if (
+                    ! is_string($session->idempotency_key) ||
+                    ! hash_equals(
+                        $session->idempotency_key,
+                        $idempotencyKey
+                    )
+                ) {
+                    return [
+                        'error' => 'The idempotency key does not match the confirmed flight session.',
+                        'status' => 409,
+                    ];
+                }
+
+                // Enforce ownership for authenticated, user-owned sessions.
+                if (
+                    auth()->check() &&
+                    $session->user_id !== null &&
+                    (int) $session->user_id !== (int) auth()->id()
+                ) {
+                    return [
+                        'error' => 'You are not authorized to pay for this flight session.',
+                        'status' => 403,
+                    ];
+                }
+
+                if ($session->status !== 'confirmed') {
+                    return [
+                        'error' => 'The flight session is not confirmed.',
+                        'status' => 409,
+                    ];
+                }
+
+                if (
+                    ! $session->expires_at ||
+                    $session->expires_at->isPast()
+                ) {
+                    return [
+                        'error' => 'The confirmed flight session has expired. Please search for the flight again.',
+                        'status' => 410,
+                    ];
+                }
+
+                $amount = $session->total_payable;
+                $currency = strtoupper(
+                    (string) $session->flight_currency
+                );
+
+                if (
+                    ! is_numeric($amount) ||
+                    (float) $amount <= 0 ||
+                    $currency === ''
+                ) {
+                    return [
+                        'error' => 'The confirmed flight amount or currency is missing.',
+                        'status' => 422,
+                    ];
+                }
+
+                /*
+                 * A payment is unique to the confirmed session's
+                 * idempotency key. Never create a new reference on retry.
+                 */
+                $payment = Payment::query()
+                    ->where('idempotency_key', $idempotencyKey)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($payment) {
+                    if (
+                        (int) $payment->flight_search_session_id !==
+                            (int) $session->id ||
+                        $payment->ama_client_ref !== $amaClientRef
+                    ) {
+                        return [
+                            'error' => 'The idempotency key is already associated with another payment.',
+                            'status' => 409,
+                        ];
+                    }
+
+                    if ($payment->payment_confirmed) {
+                        return [
+                            'payment' => $payment,
+                            'already_confirmed' => true,
+                        ];
+                    }
+
+                    if (
+                        ! empty($payment->authorization_url) &&
+                        ! empty($payment->access_code)
+                    ) {
+                        return [
+                            'payment' => $payment,
+                            'existing_link' => true,
+                        ];
+                    }
+
+                    /*
+                     * Do not blindly initialize another transaction if
+                     * the earlier Paystack request may have succeeded.
+                     */
+                    return [
+                        'error' => 'A payment initialization is already in progress or requires reconciliation. Please retry verification or contact support.',
+                        'status' => 409,
+                    ];
+                }
+
+                $payment = Payment::create([
+                    'amount' => $amount,
+                    'currency' => $currency,
+                    'user_id' => $data['user_id'] ?? $session->user_id,
+                    'paid_by_email' => $data['paid_by_email'],
+                    'payment_reference' => $this->generateReference(),
+                    'payment_status' => 'initiating',
+                    'payment_confirmed' => false,
+                    'flight_pnr' => $data['flight_pnr'] ?? null,
+                    'flight_order_id' => $data['flight_order_id'] ?? null,
+                    'flight_am_order_id' =>
+                        $data['flight_am_order_id'] ?? null,
+                    'paid_by_user_id' =>
+                        $data['paid_by_user_id'] ?? null,
+                    'paid_by_company_id' =>
+                        $data['paid_by_company_id'] ?? null,
+                    'wallet_id' => $data['wallet_id'] ?? null,
+                    'ama_client_ref' => $amaClientRef,
+                    'flight_search_session_id' => $session->id,
+                    'idempotency_key' => $idempotencyKey,
+                ]);
+
+                return [
+                    'payment' => $payment,
+                    'initialize' => true,
+                ];
+            }, 3);
+        } catch (Throwable $e) {
+            Log::error('Could not prepare Paystack payment.', [
+                'ama_client_ref' => $amaClientRef,
+                'exception' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not prepare the payment. Please try again.',
+            ], 500);
+        }
+
+        if (isset($result['error'])) {
+            return response()->json([
+                'success' => false,
+                'message' => $result['error'],
+            ], $result['status']);
+        }
+
+        /** @var Payment $payment */
+        $payment = $result['payment'];
+
+        if (! empty($result['already_confirmed'])) {
+            return response()->json([
+                'success' => true,
+                'message' => 'This payment has already been confirmed.',
                 'payment' => $payment,
-                'payment_link' => $paymentLinkResponse['data']['authorization_url'],
-                'reference'=> $paymentLinkResponse['data']['reference'],
-                'access_code'=>$paymentLinkResponse['data']['access_code'],
-            ], 200);
+            ]);
         }
 
-        // Handle failed payment link initiation
-        return response()->json([
-            'message' => 'Payment initiation failed.',
-            'errors' => $paymentLinkResponse['message'],
-        ], 500);
-    }
-
-    /**
-     * Generate a unique payment reference ID
-     */
-    private function generate_id()
-    {
-        // Generate a unique ID with a prefix
-        $uniqueReferralId = 'FFSD_TRAVELS_' . Str::random(30);
-
-        // Ensure the generated ID is unique in the database
-        while (Payment::where('payment_reference', $uniqueReferralId)->exists()) {
-            $uniqueReferralId = 'FFSD_TRAVELS' . Str::random(30); // Regenerate if not unique
-        }
-
-        return $uniqueReferralId;
-    }
-
-    /**
-     * Save payment reference details in the database
-     */
-    private function save_reference($data)
-    {
-        // Create a new payment record using the provided data
-        return Payment::create([
-            'amount' => $data['amount'],
-            'user_id' => $data['user_id'] ?? null,
-            'paid_by_email' => $data['paid_by_email'] ?? $data['email'],
-            'payment_reference' => $data['payment_reference'],
-            'payment_status' => 'not_confirmed', // Default status
-            'flight_pnr' => $data['flight_pnr'] ?? null,
-            'flight_order_id' => $data['flight_order_id'] ?? null,
-            'paid_by_user_id' => $data['paid_by_user_id'] ?? null,
-            'paid_by_company_id' => $data['paid_by_company_id'] ?? null,
-            'flight_am_order_id' => $data['flight_am_order_id'] ?? null,
-            'wallet_id' => $data['wallet_id'] ?? null,
-        ]);
-    }
-
-    /**
-     * Initiate a payment link request with the payment provider (e.g., Paystack)
-     */  
-    private function generate_link($data)
-    {
-        // Define the URL and fields for payment initiation
-        $url = "https://api.paystack.co/transaction/initialize";
-        $fields = [
-            'email' => $data['paid_by_email'],
-            'amount' => ceil($data['amount'] * 100), // Convert amount to smallest currency unit (e.g., kobo for NGN)
-            'reference' => $data['payment_reference'],
-        ];
-
-        // Make the HTTP POST request to initiate the payment
-        $response = Http::withHeaders([
-            'Authorization' => 'Bearer ' . env('PAYSTACK_SECRET_KEY'), // Ensure the secret key is properly configured in .env
-            'Cache-Control' => 'no-cache',
-        ])->post($url, $fields);
-
-        // Handle the response
-        if ($response->successful()) {
-            return $response->json(); // Return the response data if successful
-        }
-
-        // Return error details if the request fails
-        return [
-            'status' => false,
-            'message' => 'Failed to initiate payment link. Please try again.',
-        ];
-    }
-    
-
-public function verifyTransaction(Request $request)
-{
-    // Validate the incoming request data
-    $validator = Validator::make($request->all(), [
-        'amount' => 'required|integer|min:1', // Amount must be a positive integer
-        'reference' => 'required|exists:payments,payment_reference', // Ensure the reference exists in the payments table
-    ]);
-
-    // Return validation errors if any
-    if ($validator->fails()) {
-        return response()->json(['errors' => $validator->errors()], 422);
-    }
-
-    // Get validated data
-    $validatedData = $validator->validated();
-    $reference = $validatedData['reference'];
-    $amount = $validatedData['amount'] * 100; // Convert amount to kobo (assuming Paystack uses kobo)
-
-    // Prepare the URL for the Paystack API request
-    $url = "https://api.paystack.co/transaction/verify/{$reference}";
-
-    // Make the HTTP GET request
-    $response = Http::withHeaders([
-        'Authorization' => 'Bearer ' . env('PAYSTACK_SECRET_KEY'), // Ensure SECRET_KEY is set in your .env file
-        'Cache-Control' => 'no-cache',
-    ])->get($url);
-
-    // Check if the request was successful
-    if ($response->successful()) {
-        $responseData = $response->json('data'); // Retrieve the data from the response
-
-        // Check if the amount is exactly or more than the recorded amount
-        if ($amount >= $responseData['amount']) {
-            // Update the payment record
-            $this->updateTransaction($reference);
-
-            // Return the response body
-            return response()->json(['success'=>true, 'message'=>'payment confirmed'],200);
-        } else {
-            // Amount is less than expected
+        if (! empty($result['existing_link'])) {
             return response()->json([
-                'error' => 'Amount mismatch',
-                'message' => 'The amount provided is less than the amount recorded in Paystack.'
-            ], 400);
+                'success' => true,
+                'message' => 'Existing payment initialization returned.',
+                'payment' => $payment,
+                'payment_link' => $payment->authorization_url,
+                'reference' => $payment->payment_reference,
+                'access_code' => $payment->access_code,
+            ]);
         }
-    } else {
-        // Handle errors from Paystack API
-        return response()->json([
-            'error' => $response->status(),
-            'message' => $response->body()
-        ], $response->status());
+
+        /*
+         * Paystack expects the amount in the currency's minor unit.
+         * The helper below handles currencies with 0, 2, or 3 decimals.
+         */
+        try {
+            $minorAmount = $this->toMinorUnits(
+                $payment->amount,
+                $payment->currency
+            );
+
+            $response = Http::withToken($secretKey)
+                ->acceptJson()
+                ->asJson()
+                ->connectTimeout(10)
+                ->timeout(30)
+                ->post(self::PAYSTACK_INITIALIZE_URL, [
+                    'email' => $payment->paid_by_email,
+                    'amount' => $minorAmount,
+                    'currency' => $payment->currency,
+                    'reference' => $payment->payment_reference,
+                    'metadata' => [
+                        'ama_client_ref' => $payment->ama_client_ref,
+                        'idempotency_key' => $payment->idempotency_key,
+                        'payment_id' => $payment->id,
+                    ],
+                ]);
+
+            $payload = $response->json();
+
+            if (
+                $response->successful() &&
+                is_array($payload) &&
+                ($payload['status'] ?? false) === true &&
+                ! empty($payload['data']['authorization_url']) &&
+                ! empty($payload['data']['access_code']) &&
+                ($payload['data']['reference'] ?? null) ===
+                    $payment->payment_reference
+            ) {
+                $payment->authorization_url =
+                    $payload['data']['authorization_url'];
+
+                $payment->access_code =
+                    $payload['data']['access_code'];
+
+                $payment->payment_status = 'not_confirmed';
+                $payment->save();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Payment initiated successfully.',
+                    'payment' => $payment->fresh(),
+                    'payment_link' => $payment->authorization_url,
+                    'reference' => $payment->payment_reference,
+                    'access_code' => $payment->access_code,
+                ]);
+            }
+
+            /*
+             * Keep the record for reconciliation. Do not delete it and
+             * create a new reference when provider outcome is uncertain.
+             */
+            $payment->payment_status = 'initialization_uncertain';
+            $payment->save();
+
+            Log::warning('Paystack initialization was not confirmed.', [
+                'payment_id' => $payment->id,
+                'reference' => $payment->payment_reference,
+                'http_status' => $response->status(),
+                'provider_message' => is_array($payload)
+                    ? ($payload['message'] ?? null)
+                    : null,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'The payment initialization could not be confirmed. Please check the payment status before trying again.',
+                'reference' => $payment->payment_reference,
+            ], 502);
+        } catch (Throwable $e) {
+            /*
+             * A timeout may happen after Paystack has received the
+             * request. Keep the reference so it can be reconciled.
+             */
+            $payment->payment_status = 'initialization_uncertain';
+            $payment->save();
+
+            Log::error('Paystack initialization request failed.', [
+                'payment_id' => $payment->id,
+                'reference' => $payment->payment_reference,
+                'exception' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Payment initialization could not be confirmed. Please check the transaction before retrying.',
+                'reference' => $payment->payment_reference,
+            ], 502);
+        }
     }
-}
 
-private function updateTransaction($reference)
-{
-    // Update the payment status and confirmation in the database
-    Payment::where('payment_reference', $reference)->update([
-        'payment_status' => 'confirmed',
-        'payment_confirmed' => true,
-        'updated_at'=>now(),
-    ]);
+    /**
+     * Verify a Paystack transaction using the stored payment record.
+     * Never trust an amount supplied by the client.
+     */
+    public function verifyTransaction(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'reference' => ['required', 'string', 'max:255'],
+        ]);
 
-    return true;
-}
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors(),
+            ], 422);
+        }
 
+        $reference = $validator->validated()['reference'];
+
+        $payment = Payment::query()
+            ->where('payment_reference', $reference)
+            ->first();
+
+        if (! $payment) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Payment reference was not found.',
+            ], 404);
+        }
+
+        if ($payment->payment_confirmed) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment has already been confirmed.',
+                'payment' => $payment,
+            ]);
+        }
+
+        $secretKey = config('services.paystack.secret_key');
+
+        if (! is_string($secretKey) || $secretKey === '') {
+            Log::error('Paystack secret key is not configured.');
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Payment service is not configured.',
+            ], 500);
+        }
+
+        try {
+            $response = Http::withToken($secretKey)
+                ->acceptJson()
+                ->connectTimeout(10)
+                ->timeout(30)
+                ->get(
+                    self::PAYSTACK_VERIFY_URL .
+                    rawurlencode($reference)
+                );
+        } catch (Throwable $e) {
+            Log::error('Paystack verification request failed.', [
+                'reference' => $reference,
+                'exception' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not contact the payment provider. Please retry verification.',
+            ], 502);
+        }
+
+        $payload = $response->json();
+        $transaction = is_array($payload)
+            ? ($payload['data'] ?? null)
+            : null;
+
+        if (
+            ! $response->successful() ||
+            ! is_array($payload) ||
+            ($payload['status'] ?? false) !== true ||
+            ! is_array($transaction)
+        ) {
+            Log::warning('Paystack verification returned an error.', [
+                'reference' => $reference,
+                'http_status' => $response->status(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'The payment provider could not verify this transaction.',
+            ], 502);
+        }
+
+        $expectedMinorAmount = $this->toMinorUnits(
+            $payment->amount,
+            $payment->currency
+        );
+
+        $actualMinorAmount = filter_var(
+            $transaction['amount'] ?? null,
+            FILTER_VALIDATE_INT
+        );
+
+        $expectedCurrency = strtoupper((string) $payment->currency);
+        $actualCurrency = strtoupper(
+            (string) ($transaction['currency'] ?? '')
+        );
+
+        $verifiedReference = (string) (
+            $transaction['reference'] ?? ''
+        );
+
+        if (! hash_equals($payment->payment_reference, $verifiedReference)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The verified transaction reference does not match.',
+            ], 422);
+        }
+
+        if (
+            ($transaction['status'] ?? null) !== 'success'
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The transaction has not been completed successfully.',
+                'transaction_status' => $transaction['status'] ?? 'unknown',
+            ], 409);
+        }
+
+        if (
+            $actualMinorAmount === false ||
+            $actualMinorAmount !== $expectedMinorAmount
+        ) {
+            Log::warning('Paystack amount mismatch.', [
+                'reference' => $reference,
+                'expected_minor_amount' => $expectedMinorAmount,
+                'actual_minor_amount' => $transaction['amount'] ?? null,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'The verified transaction amount does not match the expected payment amount.',
+            ], 422);
+        }
+
+        if ($actualCurrency !== $expectedCurrency) {
+            Log::warning('Paystack currency mismatch.', [
+                'reference' => $reference,
+                'expected_currency' => $expectedCurrency,
+                'actual_currency' => $actualCurrency,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'The verified transaction currency does not match.',
+            ], 422);
+        }
+
+        try {
+            $updatedPayment = DB::transaction(function () use (
+                $reference,
+                $transaction
+            ) {
+                $lockedPayment = Payment::query()
+                    ->where('payment_reference', $reference)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                // Make verification safe to repeat.
+                if ($lockedPayment->payment_confirmed) {
+                    return $lockedPayment;
+                }
+
+                $lockedPayment->payment_status = 'confirmed';
+                $lockedPayment->payment_confirmed = true;
+                $lockedPayment->save();
+
+                return $lockedPayment;
+            }, 3);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment confirmed successfully.',
+                'payment' => $updatedPayment,
+            ]);
+        } catch (Throwable $e) {
+            Log::error('Failed to persist verified payment.', [
+                'reference' => $reference,
+                'exception' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'The payment was verified, but its status could not be saved. Please retry verification.',
+            ], 500);
+        }
+    }
+
+    /**
+     * Generate a unique payment reference.
+     */
+    private function generateReference(): string
+    {
+        do {
+            $reference = 'FFSD_TRAVELS_' . Str::random(30);
+        } while (
+            Payment::query()
+                ->where('payment_reference', $reference)
+                ->exists()
+        );
+
+        return $reference;
+    }
+
+    /**
+     * Convert a major currency amount to the currency's minor units.
+     *
+     * NGN 100.00 -> 10000 kobo.
+     */
+    private function toMinorUnits(
+        string|int|float $amount,
+        string $currency
+    ): int {
+        $decimalPlaces = match (strtoupper($currency)) {
+            'BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF',
+            'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND',
+            'VUV', 'XAF', 'XOF', 'XPF' => 0,
+
+            'BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR',
+            'TND' => 3,
+
+            default => 2,
+        };
+
+        $factor = 10 ** $decimalPlaces;
+        $numericAmount = (float) $amount;
+        $minorAmount = (int) round($numericAmount * $factor);
+
+        if (
+            $numericAmount <= 0 ||
+            $minorAmount <= 0 ||
+            abs(($minorAmount / $factor) - $numericAmount) > 0.000001
+        ) {
+            throw new \InvalidArgumentException(
+                'The payment amount is invalid for the selected currency.'
+            );
+        }
+
+        return $minorAmount;
+    }
 }
