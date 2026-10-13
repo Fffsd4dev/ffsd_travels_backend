@@ -26,17 +26,47 @@ jobs:
         run: composer validate --strict
 
       - name: Install Dependencies (CI Check)
-        run: composer install --no-dev --prefer-dist --no-progress --optimize-autoloader
+        run: |
+          composer install \
+            --no-dev \
+            --prefer-dist \
+            --no-progress \
+            --optimize-autoloader \
+            --no-interaction
 
       - name: Setup SSH
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
         run: |
+          set -euo pipefail
+
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          printf '%s\n' "$SERVER_SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "${{ secrets.SERVER_IP }}" >> ~/.ssh/known_hosts
+
+          ssh-keyscan -H "$SERVER_IP" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Verify Deployment Access
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+
+          ssh -i ~/.ssh/id_rsa \
+            -o StrictHostKeyChecking=yes \
+            "trave8306@$SERVER_IP" \
+            "cd '$DEPLOY_PATH' && test -f artisan && test -f .env"
 
       - name: Deploy Files
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
+          set -euo pipefail
+
           rsync -az \
             --no-times \
             --no-perms \
@@ -49,17 +79,21 @@ jobs:
             --exclude='/bootstrap/cache/' \
             --exclude='/vendor/' \
             -e "ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes" \
-            ./ "deploy@${{ secrets.SERVER_IP }}:${{ secrets.DEPLOY_PATH }}/"
+            ./ "trave8306@$SERVER_IP:$DEPLOY_PATH/"
 
       - name: Run Laravel Deployment Commands
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
+          set -euo pipefail
+
           ssh -i ~/.ssh/id_rsa \
             -o StrictHostKeyChecking=yes \
-            "deploy@${{ secrets.SERVER_IP }}" \
-            "cd '${{ secrets.DEPLOY_PATH }}' && bash -s" <<'REMOTE'
+            "trave8306@$SERVER_IP" \
+            "cd '$DEPLOY_PATH' && bash -s" <<'REMOTE'
           set -Eeuo pipefail
 
-          # Always try to restore the application if deployment fails.
           maintenance_enabled=0
 
           cleanup() {
@@ -70,21 +104,32 @@ jobs:
 
           trap cleanup EXIT
 
-          # Confirm the application directory and required directories exist.
+          # Protect production configuration.
+          test -f .env
           test -f artisan
-          mkdir -p storage/app \
-                   storage/framework/cache/data \
-                   storage/framework/sessions \
-                   storage/framework/views \
-                   storage/framework/testing \
-                   storage/logs \
-                   bootstrap/cache
 
-          # Enable maintenance mode.
+          # Ensure required Laravel runtime directories exist.
+          mkdir -p \
+            storage/app \
+            storage/framework/cache/data \
+            storage/framework/sessions \
+            storage/framework/views \
+            storage/framework/testing \
+            storage/logs \
+            bootstrap/cache
+
+          # Verify permissions before attempting maintenance mode.
+          if [ ! -w storage/framework ] || [ ! -w bootstrap/cache ]; then
+            echo "ERROR: Deployment user cannot write to Laravel runtime directories."
+            echo "Check ownership and permissions for storage/ and bootstrap/cache/."
+            exit 1
+          fi
+
+          # Put the application into maintenance mode.
           php artisan down
           maintenance_enabled=1
 
-          # Install production dependencies on the server.
+          # Install production dependencies.
           composer install \
             --no-dev \
             --prefer-dist \
@@ -92,21 +137,20 @@ jobs:
             --no-interaction \
             --no-progress
 
-          # Ensure the runtime directories are writable by their owner/group.
-          chmod -R ug+rwX storage bootstrap/cache
-
-          # Apply database changes and rebuild Laravel caches.
+          # Apply database migrations.
           php artisan migrate --force
+
+          # Rebuild Laravel caches.
           php artisan optimize:clear
           php artisan storage:link
           php artisan config:cache
           php artisan route:cache
           php artisan view:cache
 
-          # Ask running Laravel queue workers to restart gracefully.
+          # Gracefully restart queue workers.
           php artisan queue:restart || true
 
-          # Restore the application.
+          # Bring the application back online.
           php artisan up
           maintenance_enabled=0
 
