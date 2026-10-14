@@ -292,25 +292,7 @@ private function getPNR($associatedRecord)
     return $associatedRecord;
 }
 
-<?php
 
-/*
- * Paste into App\Http\Controllers\V1\Api\SystemAdmin
- * (replace the empty getPendings method).
- *
- * Add this import at the top of the controller:
- *
- *     use App\Models\FlightSearchSession;
- *
- * Column assumptions (adjust if your schema differs):
- *   payments:               payment_status, amount, reference, paid_by_email,
- *                           flight_order_am_id, idempotency_key and/or ama_client_ref,
- *                           optional user_id
- *   flight_search_sessions: ama_client_ref, idempotency_key, user_id, status,
- *                           search_criteria (cast to array), flight_fee,
- *                           flight_currency, service_fee, total_payable,
- *                           confirmed_at, expires_at
- */
 
 public function getPendings(Request $request)
 {
