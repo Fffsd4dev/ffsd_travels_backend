@@ -366,6 +366,7 @@ public function getPendings(Request $request)
                     'amount'             => $payment->amount ?? null,
                     'status'             => $payment->payment_status,
                     'paid_by_email'      => $payment->paid_by_email ?? null,
+                    'paid_by_phone'      => $payment->paid_by_phone ?? null,
                     'flight_order_am_id' => $payment->flight_order_am_id ?? null,
                     'idempotency_key'    => $payment->idempotency_key ?? null,
                     'created_at'         => Carbon::parse($payment->created_at)
