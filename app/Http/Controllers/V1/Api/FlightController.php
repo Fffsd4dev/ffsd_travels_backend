@@ -1871,9 +1871,14 @@ public function confirmPrice(FlightOffersPrice $request): JsonResponse
         FlightBookRequest $request
     ): JsonResponse {
         $data = $request->validated();
-        $idempotencyKey = $data['idempotency_key'];
+        $idempotencyKey = trim((string) ($request->header('idempotency_key') ?? ''));
 
-        unset($data['idempotency_key']);
+        if ($idempotencyKey === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'The idempotency_key header is required.',
+            ], 422);
+        }
 
         $amaClient = trim(
             (string) $request->header('ama-client-ref')
