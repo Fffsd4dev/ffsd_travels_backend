@@ -36,6 +36,7 @@ class PaymentController extends Controller
     
         $validator = Validator::make($request->all(), [
             'paid_by_email' => ['required', 'email', 'max:255'],
+            'paid_by_phone' => ['required', 'regex:/^\+[1-9]\d{7,14}$/'],
             'user_id' => ['nullable', 'integer', 'exists:users,id'],
             'flight_order_id' => [
                 'nullable',
@@ -231,6 +232,7 @@ class PaymentController extends Controller
                     'currency' => $currency,
                     'user_id' => $data['user_id'] ?? $session->user_id,
                     'paid_by_email' => $data['paid_by_email'],
+                    'paid_by_phone'=>$data['paid_by_phone'],
                     'payment_reference' => $this->generateReference(),
                     'payment_status' => 'initiating',
                     'payment_confirmed' => false,

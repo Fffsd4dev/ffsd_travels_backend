@@ -20,6 +20,7 @@ use App\Models\AssociatedRecords;
 use App\Models\Travelers;
 use App\Models\FlightOffers;
 use Carbon\Carbon;
+use App\Models\FlightSearchSession;
 class SystemAdmin extends Controller
 {
     public function addPermission(Request $request)
@@ -304,7 +305,7 @@ public function getPendings(Request $request)
     $perPage = min(max((int) $request->query('per_page', 15), 1), 50);
 
     // 1. Payments that are still pending
-    $pendingPayments = Payment::where('payment_status', 'pending')
+    $pendingPayments = Payment::where('payment_status', 'not_confirmed')
         ->orderBy('created_at', 'desc')
         ->paginate($perPage);
 

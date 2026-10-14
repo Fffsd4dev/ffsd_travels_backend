@@ -28,6 +28,7 @@ class Payment extends Model
 
         // Payer details
         'paid_by_user_id',
+        'paid_by_phone',
         'paid_by_company_id',
         'wallet_id',
 
