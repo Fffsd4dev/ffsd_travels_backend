@@ -4,7 +4,8 @@
     "name": "FFSD Travels",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_exporter_id": "8847438",
-    "_collection_link": "https://go.postman.co/collection/8847438-535f6a52-e0bd-49cf-94a8-fa2286bdac05?source=collection_link"
+    "_collection_link": "https://go.postman.co/collection/8847438-535f6a52-e0bd-49cf-94a8-fa2286bdac05?source=collection_link",
+    "description": "FFSD Travels API collection for flight search, price confirmation, booking, payments, corporate travel, user and administrator management, permissions, wallets, markups, ticketing, password reset, blog categories, and customer reviews.\n\nSetup:\n1. Configure the FFSDTravels environment variable to the base URL for the environment being tested.\n2. Use a valid Bearer token for protected endpoints.\n3. Replace sample emails, IDs, references, passenger details, and other sample values with valid test data.\n4. For payment and booking workflows, preserve the relevant ama-client-ref and idempotency-key values when required by the API.\n5. Verify payment using the transaction reference returned during payment initialization.\n\nSecurity: this collection contains sample personal data and hard-coded token-like values in some requests. Replace them with Postman variables and rotate any real credentials or tokens before sharing the collection."
   },
   "item": [
     {
@@ -17,14 +18,20 @@
               "name": "Initiate Payment",
               "request": {
                 "method": "POST",
-                "header": [],
+                "header": [
+                  {
+                    "key": "idempotency-key",
+                    "value": "96d60b25-2829-47e3-9875-8d397db28656"
+                  },
+                  {
+                    "key": "ama-client-ref",
+                    "value": "FFSD-000004"
+                  }
+                ],
                 "url": {
-                  "raw": "https://test.ffsdtravels.com/api/generate/payment?paid_by_email=ucmtn2@gmail.com&amount=123000&flight_order_am_id=34",
-                  "protocol": "https",
+                  "raw": "{{FFSDTravels}}/api/generate/payment?paid_by_email=ucmtn2@gmail.com",
                   "host": [
-                    "test",
-                    "ffsdtravels",
-                    "com"
+                    "{{FFSDTravels}}"
                   ],
                   "path": [
                     "api",
@@ -34,21 +41,21 @@
                   "query": [
                     {
                       "key": "paid_by_email",
-                      "value": "ucmtn2@gmail.com",
-                      "type": "text"
+                      "value": "ucmtn2@gmail.com"
                     },
                     {
                       "key": "amount",
                       "value": "123000",
-                      "type": "text"
+                      "disabled": true
                     },
                     {
                       "key": "flight_order_am_id",
                       "value": "34",
-                      "type": "text"
+                      "disabled": true
                     }
                   ]
-                }
+                },
+                "description": "Initializes a payment for the specified payer and flight transaction. Send the required ama-client-ref and idempotency-key headers when required by the API. Use the server-confirmed payable amount rather than trusting a client-supplied amount."
               },
               "response": []
             },
@@ -77,11 +84,13 @@
                       "type": "text"
                     }
                   ]
-                }
+                },
+                "description": "Verifies a payment using the payment provider reference returned during payment initialization. Replace the reference query parameter with the actual transaction reference."
               },
               "response": []
             }
-          ]
+          ],
+          "description": "Initiate a payment and verify its status using the payment reference returned by the payment provider."
         },
         {
           "name": "Generate Reference",
@@ -90,11 +99,13 @@
               "name": "Create Ref",
               "request": {
                 "method": "GET",
-                "header": []
+                "header": [],
+                "description": "Requests a new transaction or application reference. Check the configured request URL before use because this request currently has no URL defined in the exported collection."
               },
               "response": []
             }
-          ]
+          ],
+          "description": "Endpoints for generating references used to identify transactions or requests."
         },
         {
           "name": "Search by City name",
@@ -135,7 +146,8 @@
                   "value": "Munich"
                 }
               ]
-            }
+            },
+            "description": "Searches for a city or airport by keyword. The subType parameter controls the location type (for example, AIRPORT), and keyword contains the search term."
           },
           "response": []
         },
@@ -187,7 +199,8 @@
                 "flight",
                 "book"
               ]
-            }
+            },
+            "description": "Submits a flight-order booking request with flight offers, passenger/traveler information, contact details, and ticketing preferences. Use a current, valid offer and traveler data; sample itinerary dates and personal details are illustrative."
           },
           "response": [
             {
@@ -367,17 +380,15 @@
             "header": [
               {
                 "key": "Authorization",
-                "value": "application/json",
-                "type": "text"
+                "value": "application/json"
               },
               {
                 "key": "Content-Type",
-                "value": "",
-                "type": "text"
+                "value": ""
               }
             ],
             "url": {
-              "raw": "{{FFSDTravels}}/api/flight/search/offer?originLocationCode=LOS&destinationLocationCode=LHR&departureDate=2025-12-15&adults=1&max=4&currencyCode=NGN&travelClass=ECONOMY",
+              "raw": "{{FFSDTravels}}/api/flight/search/offer?originLocationCode=LOS&destinationLocationCode=LHR&departureDate=2026-10-13&adults=1&max=4&currencyCode=NGN&travelClass=ECONOMY",
               "host": [
                 "{{FFSDTravels}}"
               ],
@@ -398,7 +409,7 @@
                 },
                 {
                   "key": "departureDate",
-                  "value": "2025-12-15"
+                  "value": "2026-10-13"
                 },
                 {
                   "key": "adults",
@@ -432,7 +443,8 @@
                   "disabled": true
                 }
               ]
-            }
+            },
+            "description": "Searches for flight offers using query parameters such as origin, destination, departure date, passenger count, maximum offers, and currency. Replace the sample values with the requested itinerary."
           },
           "response": [
             {
@@ -623,7 +635,8 @@
                   "disabled": true
                 }
               ]
-            }
+            },
+            "description": "Searches for flight offers across multiple itinerary segments. Submit the multicity search criteria in the request body and retain the ama-client-ref returned by the API for subsequent confirmation or booking steps."
           },
           "response": [
             {
@@ -761,13 +774,16 @@
             "header": [
               {
                 "key": "Accept",
-                "value": "application/json",
-                "type": "text"
+                "value": "application/json"
+              },
+              {
+                "key": "ama-client-ref",
+                "value": "FFSD-000003"
               }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n    \"data\": {\r\n        \"type\": \"flight-offers-pricing\",\r\n        \"extra_bag\":true,\r\n        \"extra_bag_weight\":125,\r\n        \"flightOffers\": [\r\n     {\r\n            \"type\": \"flight-offer\",\r\n            \"id\": \"9\",\r\n            \"source\": \"GDS\",\r\n            \"instantTicketingRequired\": false,\r\n            \"nonHomogeneous\": false,\r\n            \"oneWay\": false,\r\n            \"isUpsellOffer\": false,\r\n            \"lastTicketingDate\": \"2024-11-28\",\r\n            \"lastTicketingDateTime\": \"2024-11-28\",\r\n            \"numberOfBookableSeats\": 9,\r\n            \"itineraries\": [\r\n                {\r\n                    \"duration\": \"PT9H5M\",\r\n                    \"segments\": [\r\n                        {\r\n                            \"departure\": {\r\n                                \"iataCode\": \"LOS\",\r\n                                \"terminal\": \"I\",\r\n                                \"at\": \"2024-11-28T23:55:00\"\r\n                            },\r\n                            \"arrival\": {\r\n                                \"iataCode\": \"CDG\",\r\n                                \"terminal\": \"2E\",\r\n                                \"at\": \"2024-11-29T06:10:00\"\r\n                            },\r\n                            \"carrierCode\": \"AF\",\r\n                            \"number\": \"149\",\r\n                            \"aircraft\": {\r\n                                \"code\": \"359\"\r\n                            },\r\n                            \"operating\": {\r\n                                \"carrierCode\": \"AF\"\r\n                            },\r\n                            \"duration\": \"PT6H15M\",\r\n                            \"id\": \"6\",\r\n                            \"numberOfStops\": 0,\r\n                            \"blacklistedInEU\": false,\r\n                            \"departure_airport\": \"Murtala Muhammed International Airport\",\r\n                            \"arrival_airport\": \"Charles de Gaulle International Airport\",\r\n                            \"airlineLogo\": \"images/AFR.png\",\r\n                            \"airlineName\": \"Air France\"\r\n                        },\r\n                        {\r\n                            \"departure\": {\r\n                                \"iataCode\": \"CDG\",\r\n                                \"terminal\": \"2E\",\r\n                                \"at\": \"2024-11-29T07:35:00\"\r\n                            },\r\n                            \"arrival\": {\r\n                                \"iataCode\": \"LHR\",\r\n                                \"terminal\": \"4\",\r\n                                \"at\": \"2024-11-29T08:00:00\"\r\n                            },\r\n                            \"carrierCode\": \"AF\",\r\n                            \"number\": \"1680\",\r\n                            \"aircraft\": {\r\n                                \"code\": \"223\"\r\n                            },\r\n                            \"operating\": {\r\n                                \"carrierCode\": \"AF\"\r\n                            },\r\n                            \"duration\": \"PT1H25M\",\r\n                            \"id\": \"7\",\r\n                            \"numberOfStops\": 0,\r\n                            \"blacklistedInEU\": false,\r\n                            \"departure_airport\": \"Charles de Gaulle International Airport\",\r\n                            \"arrival_airport\": \"London Heathrow Airport\",\r\n                            \"airlineLogo\": \"images/AFR.png\",\r\n                            \"airlineName\": \"Air France\"\r\n                        }\r\n                    ]\r\n                },\r\n                {\r\n                    \"duration\": \"PT25H\",\r\n                    \"segments\": [\r\n                        {\r\n                            \"departure\": {\r\n                                \"iataCode\": \"LHR\",\r\n                                \"terminal\": \"4\",\r\n                                \"at\": \"2024-12-30T19:35:00\"\r\n                            },\r\n                            \"arrival\": {\r\n                                \"iataCode\": \"CDG\",\r\n                                \"terminal\": \"2E\",\r\n                                \"at\": \"2024-12-30T21:55:00\"\r\n                            },\r\n                            \"carrierCode\": \"AF\",\r\n                            \"number\": \"1181\",\r\n                            \"aircraft\": {\r\n                                \"code\": \"223\"\r\n                            },\r\n                            \"operating\": {\r\n                                \"carrierCode\": \"AF\"\r\n                            },\r\n                            \"duration\": \"PT1H20M\",\r\n                            \"id\": \"105\",\r\n                            \"numberOfStops\": 0,\r\n                            \"blacklistedInEU\": false,\r\n                            \"departure_airport\": \"London Heathrow Airport\",\r\n                            \"arrival_airport\": \"Charles de Gaulle International Airport\",\r\n                            \"airlineLogo\": \"images/AFR.png\",\r\n                            \"airlineName\": \"Air France\"\r\n                        },\r\n                        {\r\n                            \"departure\": {\r\n                                \"iataCode\": \"CDG\",\r\n                                \"terminal\": \"2E\",\r\n                                \"at\": \"2024-12-31T15:15:00\"\r\n                            },\r\n                            \"arrival\": {\r\n                                \"iataCode\": \"LOS\",\r\n                                \"terminal\": \"I\",\r\n                                \"at\": \"2024-12-31T21:35:00\"\r\n                            },\r\n                            \"carrierCode\": \"AF\",\r\n                            \"number\": \"148\",\r\n                            \"aircraft\": {\r\n                                \"code\": \"359\"\r\n                            },\r\n                            \"operating\": {\r\n                                \"carrierCode\": \"AF\"\r\n                            },\r\n                            \"duration\": \"PT6H20M\",\r\n                            \"id\": \"106\",\r\n                            \"numberOfStops\": 0,\r\n                            \"blacklistedInEU\": false,\r\n                            \"departure_airport\": \"Charles de Gaulle International Airport\",\r\n                            \"arrival_airport\": \"Murtala Muhammed International Airport\",\r\n                            \"airlineLogo\": \"images/AFR.png\",\r\n                            \"airlineName\": \"Air France\"\r\n                        }\r\n                    ]\r\n                }\r\n            ],\r\n            \"price\": {\r\n                \"currency\": \"NGN\",\r\n                \"total\": \"1861976.00\",\r\n                \"base\": \"759118.00\",\r\n                \"fees\": [\r\n                    {\r\n                        \"amount\": \"0.00\",\r\n                        \"type\": \"SUPPLIER\"\r\n                    },\r\n                    {\r\n                        \"amount\": \"0.00\",\r\n                        \"type\": \"TICKETING\"\r\n                    }\r\n                ],\r\n                \"grandTotal\": \"1861976.00\",\r\n                \"additionalServices\": [\r\n                    {\r\n                        \"amount\": \"288704\",\r\n                        \"type\": \"CHECKED_BAGS\"\r\n                    }\r\n                ],\r\n                \"service_charge\": 0,\r\n                \"ffsd_total\": 1861976,\r\n                \"test_total\": 500\r\n            },\r\n            \"pricingOptions\": {\r\n                \"fareType\": [\r\n                    \"PUBLISHED\"\r\n                ],\r\n                \"includedCheckedBagsOnly\": true\r\n            },\r\n            \"validatingAirlineCodes\": [\r\n                \"AF\"\r\n            ],\r\n            \"travelerPricings\": [\r\n                {\r\n                    \"travelerId\": \"1\",\r\n                    \"fareOption\": \"STANDARD\",\r\n                    \"travelerType\": \"ADULT\",\r\n                    \"price\": {\r\n                        \"currency\": \"NGN\",\r\n                        \"total\": \"1861976.00\",\r\n                        \"base\": \"759118.00\"\r\n                    },\r\n                    \"fareDetailsBySegment\": [\r\n                        {\r\n                            \"segmentId\": \"6\",\r\n                            \"cabin\": \"ECONOMY\",\r\n                            \"fareBasis\": \"RRS0JBRA\",\r\n                            \"brandedFare\": \"LIGHTBAG\",\r\n                            \"brandedFareLabel\": \"ECONOMY LIGHTBAG\",\r\n                            \"class\": \"R\",\r\n                            \"includedCheckedBags\": {\r\n                                \"quantity\": 1\r\n                            },\r\n                            \"amenities\": [\r\n                                {\r\n                                    \"description\": \"SNACK\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"MEAL\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"BEVERAGE\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"MEAL\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"MEAL\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"MEAL\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"CHOICE OF STANDARD SEAT\",\r\n                                    \"isChargeable\": true,\r\n                                    \"amenityType\": \"BRANDED_FARES\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"MILEAGE ACCRUAL\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"BRANDED_FARES\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"UPGRADE ELIGIBILITY\",\r\n                                    \"isChargeable\": true,\r\n                                    \"amenityType\": \"BRANDED_FARES\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                }\r\n                            ]\r\n                        },\r\n                        {\r\n                            \"segmentId\": \"7\",\r\n                            \"cabin\": \"ECONOMY\",\r\n                            \"fareBasis\": \"RRS0JBRA\",\r\n                            \"brandedFare\": \"LIGHTBAG\",\r\n                            \"brandedFareLabel\": \"ECONOMY LIGHTBAG\",\r\n                            \"class\": \"L\",\r\n                            \"includedCheckedBags\": {\r\n                                \"quantity\": 1\r\n                            },\r\n                            \"amenities\": [\r\n                                {\r\n                                    \"description\": \"SNACK\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"MEAL\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"BEVERAGE\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"MEAL\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"MEAL\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"MEAL\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"CHOICE OF STANDARD SEAT\",\r\n                                    \"isChargeable\": true,\r\n                                    \"amenityType\": \"BRANDED_FARES\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"MILEAGE ACCRUAL\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"BRANDED_FARES\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"UPGRADE ELIGIBILITY\",\r\n                                    \"isChargeable\": true,\r\n                                    \"amenityType\": \"BRANDED_FARES\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                }\r\n                            ]\r\n                        },\r\n                        {\r\n                            \"segmentId\": \"105\",\r\n                            \"cabin\": \"ECONOMY\",\r\n                            \"fareBasis\": \"HRL0ABRA\",\r\n                            \"brandedFare\": \"LIGHTBAG\",\r\n                            \"brandedFareLabel\": \"ECONOMY LIGHTBAG\",\r\n                            \"class\": \"K\",\r\n                            \"includedCheckedBags\": {\r\n                                \"quantity\": 1\r\n                            },\r\n                            \"amenities\": [\r\n                                {\r\n                                    \"description\": \"SNACK\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"MEAL\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"BEVERAGE\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"MEAL\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"MEAL\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"MEAL\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"CHOICE OF STANDARD SEAT\",\r\n                                    \"isChargeable\": true,\r\n                                    \"amenityType\": \"BRANDED_FARES\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"MILEAGE ACCRUAL\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"BRANDED_FARES\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"UPGRADE ELIGIBILITY\",\r\n                                    \"isChargeable\": true,\r\n                                    \"amenityType\": \"BRANDED_FARES\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                }\r\n                            ]\r\n                        },\r\n                        {\r\n                            \"segmentId\": \"106\",\r\n                            \"cabin\": \"ECONOMY\",\r\n                            \"fareBasis\": \"HRL0ABRA\",\r\n                            \"brandedFare\": \"LIGHTBAG\",\r\n                            \"brandedFareLabel\": \"ECONOMY LIGHTBAG\",\r\n                            \"class\": \"H\",\r\n                            \"includedCheckedBags\": {\r\n                                \"quantity\": 1\r\n                            },\r\n                            \"amenities\": [\r\n                                {\r\n                                    \"description\": \"SNACK\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"MEAL\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"BEVERAGE\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"MEAL\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"MEAL\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"MEAL\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"CHOICE OF STANDARD SEAT\",\r\n                                    \"isChargeable\": true,\r\n                                    \"amenityType\": \"BRANDED_FARES\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"MILEAGE ACCRUAL\",\r\n                                    \"isChargeable\": false,\r\n                                    \"amenityType\": \"BRANDED_FARES\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                },\r\n                                {\r\n                                    \"description\": \"UPGRADE ELIGIBILITY\",\r\n                                    \"isChargeable\": true,\r\n                                    \"amenityType\": \"BRANDED_FARES\",\r\n                                    \"amenityProvider\": {\r\n                                        \"name\": \"BrandedFare\"\r\n                                    }\r\n                                }\r\n                            ]\r\n                        }\r\n                    ]\r\n                }\r\n            ],\r\n            \"fareRules\": {\r\n                \"rules\": [\r\n                    {\r\n                        \"category\": \"EXCHANGE\",\r\n                        \"maxPenaltyAmount\": \"339650\"\r\n                    },\r\n                    {\r\n                        \"category\": \"REVALIDATION\",\r\n                        \"notApplicable\": true\r\n                    }\r\n                ]\r\n            }\r\n        }\r\n        ]\r\n    }\r\n}",
+              "raw": "{\r\n    \"data\": {\r\n        \"type\": \"flight-offers-pricing\",\r\n        \"flightOffers\": [\r\n{\r\n            \"type\": \"flight-offer\",\r\n            \"id\": \"1\",\r\n            \"source\": \"GDS\",\r\n            \"instantTicketingRequired\": false,\r\n            \"nonHomogeneous\": false,\r\n            \"oneWay\": false,\r\n            \"isUpsellOffer\": false,\r\n            \"lastTicketingDate\": \"2026-10-13\",\r\n            \"lastTicketingDateTime\": \"2026-10-13\",\r\n            \"numberOfBookableSeats\": 9,\r\n            \"itineraries\": [\r\n                {\r\n                    \"duration\": \"PT17H45M\",\r\n                    \"segments\": [\r\n                        {\r\n                            \"departure\": {\r\n                                \"iataCode\": \"LOS\",\r\n                                \"terminal\": \"2I\",\r\n                                \"at\": \"2026-10-13T15:15:00\"\r\n                            },\r\n                            \"arrival\": {\r\n                                \"iataCode\": \"KGL\",\r\n                                \"at\": \"2026-10-13T21:35:00\"\r\n                            },\r\n                            \"carrierCode\": \"WB\",\r\n                            \"number\": \"203\",\r\n                            \"aircraft\": {\r\n                                \"code\": \"333\"\r\n                            },\r\n                            \"operating\": {\r\n                                \"carrierCode\": \"WB\"\r\n                            },\r\n                            \"duration\": \"PT5H20M\",\r\n                            \"id\": \"158\",\r\n                            \"numberOfStops\": 0,\r\n                            \"blacklistedInEU\": false\r\n                        },\r\n                        {\r\n                            \"departure\": {\r\n                                \"iataCode\": \"KGL\",\r\n                                \"at\": \"2026-10-13T23:59:00\"\r\n                            },\r\n                            \"arrival\": {\r\n                                \"iataCode\": \"LHR\",\r\n                                \"terminal\": \"4\",\r\n                                \"at\": \"2026-10-14T09:00:00\"\r\n                            },\r\n                            \"carrierCode\": \"WB\",\r\n                            \"number\": \"710\",\r\n                            \"aircraft\": {\r\n                                \"code\": \"333\"\r\n                            },\r\n                            \"operating\": {\r\n                                \"carrierCode\": \"WB\"\r\n                            },\r\n                            \"duration\": \"PT10H1M\",\r\n                            \"id\": \"159\",\r\n                            \"numberOfStops\": 0,\r\n                            \"blacklistedInEU\": false\r\n                        }\r\n                    ]\r\n                }\r\n            ],\r\n            \"price\": {\r\n                \"currency\": \"NGN\",\r\n                \"total\": \"560405.00\",\r\n                \"base\": \"113348.00\",\r\n                \"fees\": [\r\n                    {\r\n                        \"amount\": \"0.00\",\r\n                        \"type\": \"SUPPLIER\"\r\n                    },\r\n                    {\r\n                        \"amount\": \"0.00\",\r\n                        \"type\": \"TICKETING\"\r\n                    }\r\n                ],\r\n                \"grandTotal\": \"560405.00\",\r\n                \"service_charge\": 850.11,\r\n                \"ffsd_total\": 561256\r\n            },\r\n            \"pricingOptions\": {\r\n                \"fareType\": [\r\n                    \"PUBLISHED\"\r\n                ],\r\n                \"includedCheckedBagsOnly\": true\r\n            },\r\n            \"validatingAirlineCodes\": [\r\n                \"WB\"\r\n            ],\r\n            \"travelerPricings\": [\r\n                {\r\n                    \"travelerId\": \"1\",\r\n                    \"fareOption\": \"STANDARD\",\r\n                    \"travelerType\": \"ADULT\",\r\n                    \"price\": {\r\n                        \"currency\": \"NGN\",\r\n                        \"total\": \"560405.00\",\r\n                        \"base\": \"113348.00\",\r\n                        \"service_charge\": 850.11,\r\n                        \"total_charge\": 561256\r\n                    },\r\n                    \"fareDetailsBySegment\": [\r\n                        {\r\n                            \"segmentId\": \"158\",\r\n                            \"cabin\": \"ECONOMY\",\r\n                            \"fareBasis\": \"TOWPNGST\",\r\n                            \"class\": \"T\",\r\n                            \"includedCheckedBags\": {\r\n                                \"quantity\": 2\r\n                            },\r\n                            \"includedCabinBags\": {\r\n                                \"quantity\": 1\r\n                            }\r\n                        },\r\n                        {\r\n                            \"segmentId\": \"159\",\r\n                            \"cabin\": \"ECONOMY\",\r\n                            \"fareBasis\": \"TOWPNGST\",\r\n                            \"class\": \"T\",\r\n                            \"includedCheckedBags\": {\r\n                                \"quantity\": 2\r\n                            },\r\n                            \"includedCabinBags\": {\r\n                                \"quantity\": 1\r\n                            }\r\n                        }\r\n                    ]\r\n                }\r\n            ],\r\n            \"DepartureAirport\": \"Murtala Muhammed International Airport\",\r\n            \"arrivalAirport\": \"London Heathrow Airport\",\r\n            \"logo\": \"images/RWD.png\"\r\n        }\r\n        ]\r\n    }\r\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -775,12 +791,9 @@
               }
             },
             "url": {
-              "raw": "https://test.ffsdtravels.com/api/flight/price/confirm",
-              "protocol": "https",
+              "raw": "{{FFSDTravels}}/api/flight/price/confirm",
               "host": [
-                "test",
-                "ffsdtravels",
-                "com"
+                "{{FFSDTravels}}"
               ],
               "path": [
                 "api",
@@ -788,7 +801,8 @@
                 "price",
                 "confirm"
               ]
-            }
+            },
+            "description": "Confirms or reprices a selected flight offer before booking. Submit the offer data returned by flight search and preserve the associated ama-client-ref so the selected offer can be correlated with its search session."
           },
           "response": []
         },
@@ -844,7 +858,7 @@
                 "fare"
               ]
             },
-            "description": "Branded fares, or fare families, are airline-created fares that combine different products and services like bags, sets, meals, free cancellation or miles accrual. The Amadeus Branded Fare Upsell API provides the branded fares available for a given flight, along with pricing and a fare description. This enables you to increase booking revenue by recommending higher-value fares during the shopping phase.\n\nThe Branded Fares Upsell API is easily integrated into the Amadeus REST/JSON flight booking engine and provides branded fare options for flights returned by the Flight Offers Search API."
+            "description": "Branded fares, or fare families, are airline-created fares that combine different products and services like bags, sets, meals, free cancellation or miles accrual. The Amadeus Branded Fare Upsell API provides the branded fares available for a given flight, along with pricing and a fare description. This enables you to increase booking revenue by recommending higher-value fares during the shopping phase.\n\nThe Branded Fares Upsell API is easily integrated into the Amadeus REST/JSON flight booking engine and provides branded fare options for flights returned by the Flight Offers Search API.\n\nUsage notes: Retrieves branded fare options and related pricing or fare-family information for a selected flight offer. Use the offer returned by the flight search workflow."
           },
           "response": []
         },
@@ -899,11 +913,13 @@
                   "type": "text"
                 }
               ]
-            }
+            },
+            "description": "Retrieves details for an existing flight order using the flightOrderId query parameter. Supply a valid order identifier returned by the booking workflow."
           },
           "response": []
         }
-      ]
+      ],
+      "description": "Endpoints for flight search, price confirmation, booking, payment processing, reference generation, branded fares, and retrieving flight-order details."
     },
     {
       "name": "Corporate flight",
@@ -967,7 +983,8 @@
                     "create",
                     "staff"
                   ]
-                }
+                },
+                "description": "Creates a staff member under the authenticated corporate account. Provide the staff member’s first name, last name, email, and phone in the request form data."
               },
               "response": []
             },
@@ -1001,7 +1018,8 @@
                       "value": "123456"
                     }
                   ]
-                }
+                },
+                "description": "Authenticates a user and should return the authentication result or token used for protected corporate endpoints. Avoid placing real passwords directly in the URL; use secure variables and the API’s supported request format."
               },
               "response": []
             },
@@ -1036,13 +1054,16 @@
                     "flight",
                     "book"
                   ]
-                }
+                },
+                "description": "Creates a corporate flight booking. Provide the required itinerary, traveler, and booking details and authenticate with a valid corporate user token."
               },
               "response": []
             }
-          ]
+          ],
+          "description": "Create corporate staff accounts, authenticate users, and book flights on behalf of a company."
         }
-      ]
+      ],
+      "description": "Corporate travel endpoints for staff access and company flight bookings."
     },
     {
       "name": "System Admin",
@@ -1092,7 +1113,8 @@
                       "disabled": true
                     }
                   ]
-                }
+                },
+                "description": "Verifies an administrator email address using the required verification data in the request body."
               },
               "response": []
             },
@@ -1135,7 +1157,8 @@
                       "disabled": true
                     }
                   ]
-                }
+                },
+                "description": "Requests a new one-time password for the administrator verification or recovery flow. Use only for the intended account and follow the API’s OTP rules."
               },
               "response": []
             },
@@ -1183,7 +1206,8 @@
                     "change",
                     "password"
                   ]
-                }
+                },
+                "description": "Changes an administrator password after submitting the required identity and password-verification fields."
               },
               "response": []
             },
@@ -1220,7 +1244,8 @@
                     "admin",
                     "login"
                   ]
-                }
+                },
+                "description": "Authenticates a user and should return the authentication result or token used for protected corporate endpoints. Avoid placing real passwords directly in the URL; use secure variables and the API’s supported request format."
               },
               "response": []
             },
@@ -1283,7 +1308,8 @@
                     "admin",
                     "register"
                   ]
-                }
+                },
+                "description": "Registers a new administrator account using the fields required by the API."
               },
               "response": []
             },
@@ -1316,11 +1342,13 @@
                     "api",
                     "logout"
                   ]
-                }
+                },
+                "description": "Logs out the authenticated user or invalidates the current session/token if supported by the API."
               },
               "response": []
             }
-          ]
+          ],
+          "description": "Administrator registration, login, email verification, OTP regeneration, password changes, and logout."
         },
         {
           "name": "Access Control",
@@ -1372,7 +1400,8 @@
                     "start",
                     "permission"
                   ]
-                }
+                },
+                "description": "Initializes or assigns system-administrator permissions using the request fields required by the API."
               },
               "response": []
             },
@@ -1396,7 +1425,8 @@
                     "create",
                     "permission"
                   ]
-                }
+                },
+                "description": "Creates a permission record. Submit the permission name and any additional fields required by the backend validation."
               },
               "response": []
             },
@@ -1426,7 +1456,8 @@
                     "permissions",
                     "all"
                   ]
-                }
+                },
+                "description": "Returns the available permission records for administration or access-control management."
               },
               "response": []
             },
@@ -1481,11 +1512,13 @@
                     "assign",
                     "permission"
                   ]
-                }
+                },
+                "description": "Assigns a permission to the target user or role. Supply valid IDs and the fields required by the API."
               },
               "response": []
             }
-          ]
+          ],
+          "description": "Create and manage permissions, retrieve available permissions, and assign permissions to users or roles."
         },
         {
           "name": "users",
@@ -1576,7 +1609,8 @@
                     "user",
                     "edit"
                   ]
-                }
+                },
+                "description": "Updates an existing user record. Supply the target user identifier and only the fields intended to be changed."
               },
               "response": []
             },
@@ -1663,7 +1697,8 @@
                     "create",
                     "company"
                   ]
-                }
+                },
+                "description": "Creates a company or company-associated user record using the required company and user details."
               },
               "response": []
             },
@@ -1685,7 +1720,8 @@
                     "users",
                     "all"
                   ]
-                }
+                },
+                "description": "Returns a list of user records available to the authenticated caller."
               },
               "response": []
             },
@@ -1693,11 +1729,13 @@
               "name": "GetSingle",
               "request": {
                 "method": "GET",
-                "header": []
+                "header": [],
+                "description": "Retrieves a single user record. Confirm the configured URL and provide the required user identifier before sending."
               },
               "response": []
             }
-          ]
+          ],
+          "description": "Administrative user-management operations, including creating company users, editing user details, and retrieving user records."
         },
         {
           "name": "Wallet",
@@ -1706,7 +1744,8 @@
               "name": "Get Wallet Info",
               "request": {
                 "method": "GET",
-                "header": []
+                "header": [],
+                "description": "Retrieves wallet details for the relevant company or account. Confirm the configured URL and required authentication or query parameters."
               },
               "response": []
             },
@@ -1729,11 +1768,13 @@
                     "transaction",
                     "history"
                   ]
-                }
+                },
+                "description": "Retrieves corporate transaction or expense history. Provide any required company, wallet, date-range, or pagination parameters supported by the endpoint."
               },
               "response": []
             }
-          ]
+          ],
+          "description": "Retrieve wallet information and view corporate transaction or expense history."
         },
         {
           "name": "markup",
@@ -1787,7 +1828,8 @@
                     "markup",
                     "create"
                   ]
-                }
+                },
+                "description": "Creates a markup configuration. Submit the markup fields required by the backend validation."
               },
               "response": []
             },
@@ -1841,7 +1883,8 @@
                     "update",
                     "{id}"
                   ]
-                }
+                },
+                "description": "Updates the markup identified by the {id} path parameter. Replace {id} with the actual markup record ID."
               },
               "response": []
             },
@@ -1899,7 +1942,8 @@
                     "markup",
                     "home"
                   ]
-                }
+                },
+                "description": "Lists markup records available to the caller."
               },
               "response": []
             },
@@ -1945,7 +1989,8 @@
                     "show",
                     "{id}"
                   ]
-                }
+                },
+                "description": "Retrieves one markup record. Replace the {id} path parameter with the markup record ID."
               },
               "response": []
             },
@@ -1999,11 +2044,13 @@
                     "delete",
                     "10"
                   ]
-                }
+                },
+                "description": "Deletes the markup identified by the path parameter. Confirm the target ID before sending because this operation changes stored data."
               },
               "response": []
             }
-          ]
+          ],
+          "description": "Create, update, list, retrieve, and delete flight markups."
         },
         {
           "name": "Ticketing",
@@ -2052,11 +2099,13 @@
                     "flight",
                     "ticket"
                   ]
-                }
+                },
+                "description": "Requests ticketing for a flight booking or order. Provide the order details required by the API and ensure payment and booking prerequisites are satisfied."
               },
               "response": []
             }
-          ]
+          ],
+          "description": "Ticketing operations for flight orders."
         },
         {
           "name": "Flight management",
@@ -2112,7 +2161,8 @@
                       "type": "text"
                     }
                   ]
-                }
+                },
+                "description": "Retrieves details for an existing flight order using the flightOrderId query parameter. Supply a valid order identifier returned by the booking workflow."
               },
               "response": []
             },
@@ -2120,7 +2170,8 @@
               "name": "Cancel PNR",
               "request": {
                 "method": "GET",
-                "header": []
+                "header": [],
+                "description": "Cancels a booking/PNR if supported and permitted by the airline and current order status. Confirm the configured URL, required identifier, and cancellation rules before use."
               },
               "response": []
             },
@@ -2174,7 +2225,8 @@
                     "modify",
                     "pnr"
                   ]
-                }
+                },
+                "description": "Requests a modification to an existing PNR. Supply the PNR/order identifier and modification details required by the API."
               },
               "response": []
             },
@@ -2182,17 +2234,20 @@
               "name": "Mark as Ticketed",
               "request": {
                 "method": "GET",
-                "header": []
+                "header": [],
+                "description": "Marks a flight order as ticketed. Confirm that ticket issuance has actually succeeded before invoking this operation."
               },
               "response": []
             }
-          ]
+          ],
+          "description": "Administrative flight-order operations, including retrieving order details, cancelling or modifying a PNR, and managing ticketing status."
         },
         {
           "name": "Mark as Ticketed Copy",
           "request": {
             "method": "GET",
-            "header": []
+            "header": [],
+            "description": "Administrative request related to marking a flight booking as ticketed. Confirm the URL and required parameters before use."
           },
           "response": []
         },
@@ -2225,11 +2280,13 @@
                 "flights",
                 "booked"
               ]
-            }
+            },
+            "description": "Retrieves booked flight records available to the caller."
           },
           "response": []
         }
-      ]
+      ],
+      "description": "Administrative endpoints for authentication, access control, users, wallets, markups, ticketing, and flight management."
     },
     {
       "name": "User management",
@@ -2317,7 +2374,8 @@
                 "user",
                 "edit"
               ]
-            }
+            },
+            "description": "Updates an existing user record. Supply the target user identifier and only the fields intended to be changed."
           },
           "response": []
         },
@@ -2339,7 +2397,8 @@
                 "users",
                 "all"
               ]
-            }
+            },
+            "description": "Returns a list of user records available to the authenticated caller."
           },
           "response": []
         },
@@ -2433,7 +2492,8 @@
                 "create",
                 "company"
               ]
-            }
+            },
+            "description": "Creates a company or company-associated user record using the required company and user details."
           },
           "response": []
         },
@@ -2441,11 +2501,13 @@
           "name": "New Request",
           "request": {
             "method": "GET",
-            "header": []
+            "header": [],
+            "description": "Retrieves new or pending user-management requests. Confirm the request URL and any required filters before use."
           },
           "response": []
         }
-      ]
+      ],
+      "description": "User-management endpoints for updating users, listing users, creating company accounts, and checking new requests."
     },
     {
       "name": "Password Reset",
@@ -2496,7 +2558,8 @@
                 "change",
                 "password"
               ]
-            }
+            },
+            "description": "Changes an administrator password after submitting the required identity and password-verification fields."
           },
           "response": []
         },
@@ -2537,15 +2600,18 @@
                   "disabled": true
                 }
               ]
-            }
+            },
+            "description": "Requests a new one-time password for the administrator verification or recovery flow. Use only for the intended account and follow the API’s OTP rules."
           },
           "response": []
         }
-      ]
+      ],
+      "description": "Endpoints for password changes and regenerating password-reset or verification OTPs."
     },
     {
       "name": "Blog Post",
-      "item": []
+      "item": [],
+      "description": "Blog-post endpoints. Review each request’s URL and payload before use; this folder currently contains no request-level details in the collection."
     },
     {
       "name": "Blog Categories",
@@ -2554,11 +2620,13 @@
           "name": "Create Blog",
           "request": {
             "method": "GET",
-            "header": []
+            "header": [],
+            "description": "Blog-category operation as currently named in the collection. Verify the configured URL and HTTP method; the request may need to be updated if it is intended to create a category."
           },
           "response": []
         }
-      ]
+      ],
+      "description": "Blog-category endpoints. Review the configured URL and parameters before sending a request."
     },
     {
       "name": "User Review",
@@ -2605,7 +2673,8 @@
                 "reviews",
                 "all"
               ]
-            }
+            },
+            "description": "Lists customer reviews through the administrator endpoint."
           },
           "response": []
         },
@@ -2650,7 +2719,8 @@
                 "reviews",
                 "all"
               ]
-            }
+            },
+            "description": "Lists reviews available to public visitors."
           },
           "response": []
         },
@@ -2697,7 +2767,8 @@
                 "single",
                 "1"
               ]
-            }
+            },
+            "description": "Retrieves one customer review through the administrator endpoint. Replace the sample review ID with the target ID."
           },
           "response": []
         },
@@ -2741,7 +2812,8 @@
                 "review",
                 "2"
               ]
-            }
+            },
+            "description": "Deletes a customer review through the administrator endpoint. Confirm the review ID before sending."
           },
           "response": []
         },
@@ -2797,7 +2869,8 @@
                 "create",
                 "review"
               ]
-            }
+            },
+            "description": "Creates a customer review using the required review fields in the request body."
           },
           "response": []
         },
@@ -2864,11 +2937,13 @@
                 "update",
                 "3"
               ]
-            }
+            },
+            "description": "Updates an existing customer review. Replace the sample review ID with the target review and submit the changed fields."
           },
           "response": []
         }
-      ]
+      ],
+      "description": "Retrieve, create, update, and delete customer reviews, including administrator review operations."
     }
   ]
 }
