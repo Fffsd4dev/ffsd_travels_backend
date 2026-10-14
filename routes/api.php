@@ -84,6 +84,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('admin/blog/categories/get/{id}', [BlogCategory::class, 'show']);          // Show a specific category by ID
     Route::post('admin/blog/update/categories/{id}', [BlogCategory::class, 'update']);
     Route::post('admin/blog/delete/categories/{id}', [BlogCategory::class, 'destroy']);
+  
     
     
     
@@ -165,6 +166,8 @@ Route::get('/countries', [Countries::class,'index']);
 Route::post('/corporate/flight/book', [CorporateTravel::class, 'bookFlight']);
 Route::get('users/all', [SystemAdmin::class,  'getAllUsers']);
 Route::get('get/flights/booked', [SystemAdmin::class,  'getBooked']);
+Route::get('get/flights/pend', [SystemAdmin::class,  'getPendings']); // Changed route to /api/get/flights/pend
+
 
 // For query parameter usage
 Route::get('/users/single/{user_id}', [SystemAdmin::class, 'GetSingle']);

@@ -33,6 +33,7 @@ class PaymentController extends Controller
      */
     public function initiatePay(Request $request): JsonResponse
     {
+    
         $validator = Validator::make($request->all(), [
             'paid_by_email' => ['required', 'email', 'max:255'],
             'user_id' => ['nullable', 'integer', 'exists:users,id'],

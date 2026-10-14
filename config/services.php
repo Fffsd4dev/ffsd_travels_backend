@@ -56,6 +56,7 @@ return [
     'search_cache_ttl'  => (int) env('FLIGHT_SEARCH_CACHE_TTL', 180),
     'confirmed_flight_ttl' => (int) env('FLIGHT_CONFIRMED_TTL', 7600),
     
+    
 ],
 'paystack' => [
     'secret_key' => env('PAYSTACK_SECRET_KEY'),

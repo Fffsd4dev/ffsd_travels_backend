@@ -249,35 +249,7 @@ class SystemAdmin extends Controller
             return response()->json(['success' => false, 'message' => 'An error occurred: ' . $e->getMessage()], 500);
         }
     }
-// public function getBooked(Request $request)
-// {
-//     $user_logged = Auth::guard('sanctum')->user();
-//     if (!$user_logged || !in_array($user_logged->user_type, ['admin', 'system_admin'])) {
-//         return response()->json(['error' => 'Invalid Access'], 403);
-//     }
 
-//     // Use eager loading to reduce query count
-//     $booked_flights = TicketStatus::where('ticket_status', 'not done')
-//         ->orderBy('created_at', 'desc')
-//         ->with(['associatedRecords', 'travelers', 'flightOffer.travelerPricings','flightOffer.itineraries'])
-//         ->paginate(15);
-        
-//     $booked_flights->getCollection()->transform(function ($flight) {
-//         $flight->associatedRecords = $this->getPNR($flight->associatedRecords);
-//         return [
-//             'reference' => $flight->pnr,
-//              // Ensure the correct key
-//             'order_id' => $flight->flight_order_id,
-//             'associated_records' => $flight->associatedRecords,
-//             'Itineray'=>$flight->flightOffer->itineraries,
-//             'travelers' => $flight->travelers,
-//             'flight_offer' => $flight->flightOffer,
-//             'traveler_pricings' => $flight->flightOffer ? $flight->flightOffer->travelerPricings : null, // Ensure flightOffer exists
-//         ];
-//     });
-
-//     return response()->json($booked_flights);
-// }
 
 public function getBooked(Request $request)
 {
@@ -320,5 +292,218 @@ private function getPNR($associatedRecord)
     return $associatedRecord;
 }
 
+<?php
+
+/*
+ * Paste into App\Http\Controllers\V1\Api\SystemAdmin
+ * (replace the empty getPendings method).
+ *
+ * Add this import at the top of the controller:
+ *
+ *     use App\Models\FlightSearchSession;
+ *
+ * Column assumptions (adjust if your schema differs):
+ *   payments:               payment_status, amount, reference, paid_by_email,
+ *                           flight_order_am_id, idempotency_key and/or ama_client_ref,
+ *                           optional user_id
+ *   flight_search_sessions: ama_client_ref, idempotency_key, user_id, status,
+ *                           search_criteria (cast to array), flight_fee,
+ *                           flight_currency, service_fee, total_payable,
+ *                           confirmed_at, expires_at
+ */
+
+public function getPendings(Request $request)
+{
+    $user_logged = Auth::guard('sanctum')->user();
+    if (!$user_logged || !in_array($user_logged->user_type, ['admin', 'system_admin'])) {
+        return response()->json(['error' => 'Invalid Access'], 403);
+    }
+
+    $perPage = min(max((int) $request->query('per_page', 15), 1), 50);
+
+    // 1. Payments that are still pending
+    $pendingPayments = Payment::where('payment_status', 'pending')
+        ->orderBy('created_at', 'desc')
+        ->paginate($perPage);
+
+    $payments = $pendingPayments->getCollection();
+
+    // 2. Flight search sessions linked to those payments
+    //    (by confirmation idempotency key, falling back to the ama-client-ref)
+    $idempotencyKeys = $payments->pluck('idempotency_key')->filter()->unique()->values();
+    $clientRefs = $payments->pluck('ama_client_ref')->filter()->unique()->values();
+
+    $sessions = collect();
+
+    if ($idempotencyKeys->isNotEmpty() || $clientRefs->isNotEmpty()) {
+        $sessions = FlightSearchSession::query()
+            ->where(function ($query) use ($idempotencyKeys, $clientRefs) {
+                if ($idempotencyKeys->isNotEmpty()) {
+                    $query->whereIn('idempotency_key', $idempotencyKeys);
+                }
+
+                if ($clientRefs->isNotEmpty()) {
+                    $query->orWhereIn('ama_client_ref', $clientRefs);
+                }
+            })
+            ->get();
+    }
+
+    $sessionsByKey = $sessions->filter(fn ($s) => !empty($s->idempotency_key))
+        ->keyBy('idempotency_key');
+    $sessionsByRef = $sessions->filter(fn ($s) => !empty($s->ama_client_ref))
+        ->keyBy('ama_client_ref');
+
+    // 3. User details (only the fields the admin needs)
+    $userIds = $sessions->pluck('user_id')
+        ->merge($payments->pluck('user_id'))
+        ->filter()
+        ->unique()
+        ->values();
+
+    $users = $userIds->isEmpty()
+        ? collect()
+        : User::whereIn('id', $userIds)
+            ->get(['id', 'firstName', 'lastName', 'email', 'phone', 'user_type', 'user_company_id'])
+            ->keyBy('id');
+
+    // 4. Shape the response
+    $pendingPayments->getCollection()->transform(
+        function ($payment) use ($sessionsByKey, $sessionsByRef, $users) {
+            $session = ($payment->idempotency_key ? $sessionsByKey->get($payment->idempotency_key) : null)
+                ?? ($payment->ama_client_ref ? $sessionsByRef->get($payment->ama_client_ref) : null);
+
+            $userId = $payment->user_id ?? $session?->user_id;
+            $user = $userId ? $users->get($userId) : null;
+
+            return [
+                'payment' => [
+                    'id'                 => $payment->id,
+                    'reference'          => $payment->reference ?? null,
+                    'amount'             => $payment->amount ?? null,
+                    'status'             => $payment->payment_status,
+                    'paid_by_email'      => $payment->paid_by_email ?? null,
+                    'flight_order_am_id' => $payment->flight_order_am_id ?? null,
+                    'idempotency_key'    => $payment->idempotency_key ?? null,
+                    'created_at'         => Carbon::parse($payment->created_at)
+                        ->setTimezone('Africa/Lagos')
+                        ->format('Y-m-d H:i:s'),
+                ],
+                'user' => $user
+                    ? [
+                        'id'         => $user->id,
+                        'name'       => trim($user->firstName . ' ' . $user->lastName),
+                        'email'      => $user->email,
+                        'phone'      => $user->phone,
+                        'user_type'  => $user->user_type,
+                        'company_id' => $user->user_company_id,
+                        'guest'      => false,
+                    ]
+                    : [
+                        'guest' => true,
+                        'email' => $payment->paid_by_email ?? null,
+                    ],
+                'flight' => $session
+                    ? [
+                        'ama_client_ref'       => $session->ama_client_ref,
+                        'session_status'       => $session->status,
+                        'search'               => $this->summarizeSearchCriteria($session->search_criteria),
+                        'pricing'              => [
+                            'currency'      => $session->flight_currency,
+                            'flight_fee'    => $session->flight_fee,
+                            'service_fee'   => $session->service_fee,
+                            'total_payable' => $session->total_payable,
+                        ],
+                        'confirmed_at'         => $session->confirmed_at?->toIso8601String(),
+                        'confirmation_expires' => $session->expires_at?->toIso8601String(),
+                        'confirmation_expired' => $session->expires_at ? $session->expires_at->isPast() : null,
+                    ]
+                    : null,
+            ];
+        }
+    );
+
+    return response()->json($pendingPayments);
+}
+
+/**
+ * Turns the stored search criteria into a readable summary.
+ * Handles both one-way/round-trip GET searches and multi-city POST searches.
+ */
+private function summarizeSearchCriteria($criteria): array
+{
+    if (is_string($criteria)) {
+        $criteria = json_decode($criteria, true);
+    }
+
+    if (!is_array($criteria)) {
+        return [];
+    }
+
+    // Multi-city / multi-leg search
+    if (!empty($criteria['originDestinations']) && is_array($criteria['originDestinations'])) {
+        $legs = array_map(fn ($leg) => [
+            'origin'      => $leg['originLocationCode'] ?? null,
+            'destination' => $leg['destinationLocationCode'] ?? null,
+            'date'        => $leg['departureDateTimeRange']['date'] ?? null,
+            'time'        => $leg['departureDateTimeRange']['time'] ?? null,
+        ], $criteria['originDestinations']);
+
+        $passengers = ['adults' => 0, 'children' => 0, 'infants' => 0];
+
+        foreach (($criteria['travelers'] ?? []) as $traveler) {
+            $type = $traveler['travelerType'] ?? 'ADULT';
+
+            if ($type === 'CHILD') {
+                $passengers['children']++;
+            } elseif (in_array($type, ['HELD_INFANT', 'SEATED_INFANT'], true)) {
+                $passengers['infants']++;
+            } else {
+                $passengers['adults']++;
+            }
+        }
+
+        $isRoundTrip = count($legs) === 2
+            && $legs[0]['origin'] === $legs[1]['destination']
+            && $legs[0]['destination'] === $legs[1]['origin'];
+
+        return [
+            'trip_type'  => $isRoundTrip ? 'round_trip' : 'multi_city',
+            'legs'       => $legs,
+            'passengers' => $passengers,
+            'cabin'      => $criteria['searchCriteria']['flightFilters']['cabinRestrictions'][0]['cabin'] ?? null,
+            'currency'   => $criteria['currencyCode'] ?? null,
+        ];
+    }
+
+    // Standard search (query-string parameters)
+    $legs = [[
+        'origin'      => $criteria['originLocationCode'] ?? null,
+        'destination' => $criteria['destinationLocationCode'] ?? null,
+        'date'        => $criteria['departureDate'] ?? null,
+        'time'        => null,
+    ]];
+
+    if (!empty($criteria['returnDate'])) {
+        $legs[] = [
+            'origin'      => $criteria['destinationLocationCode'] ?? null,
+            'destination' => $criteria['originLocationCode'] ?? null,
+            'date'        => $criteria['returnDate'],
+            'time'        => null,
+        ];
+    }
+
+    return [
+        'trip_type'  => count($legs) > 1 ? 'round_trip' : 'one_way',
+        'legs'       => $legs,
+        'passengers' => [
+            'adults'   => (int) ($criteria['adults'] ?? 1),
+            'children' => (int) ($criteria['children'] ?? 0),
+            'infants'  => (int) ($criteria['infants'] ?? 0),
+        ],
+        'cabin'      => $criteria['travelClass'] ?? null,
+        'currency'   => $criteria['currencyCode'] ?? null,
+    ];
+}
 
 }
