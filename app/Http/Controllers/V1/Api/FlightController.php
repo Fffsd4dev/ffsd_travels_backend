@@ -39,6 +39,7 @@ use Illuminate\Validation\ValidationException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
+use App\Notifications\CustomerFlightBookingNotification;
 
 use Throwable;
 
@@ -2163,18 +2164,24 @@ public function bookFlight(
                  * 7. Email failure must not undo a successful booking.
                  */
                 try {
-                    $this->sendEmail($feedback);
-                } catch (Throwable $e) {
-                    Log::error(
-                        'Flight booking email notification failed.',
-                        [
-                            'flight_order_id' => $flightOrderId,
-                            'idempotency_key' => $idempotencyKey,
-                            'exception' => $e::class,
-                            'message' => $e->getMessage(),
-                        ]
-                    );
-                }
+    $this->sendEmail($feedback);
+} catch (Throwable $e) {
+    Log::error('Flight booking email notification failed.', [
+        'flight_order_id' => $flightOrderId,
+        'idempotency_key' => $idempotencyKey,
+        'exception' => $e::class,
+    ]);
+}
+
+try {
+    $this->sendCustomerEmail($feedback, $session);
+} catch (Throwable $e) {
+    Log::error('Customer booking email failed.', [
+        'flight_order_id' => $flightOrderId,
+        'idempotency_key' => $idempotencyKey,
+        'exception' => $e::class,
+    ]);
+}
 
                 /*
                  * 8. Mark the session as booked and remove the
@@ -3270,5 +3277,68 @@ private function findFlightSearchSession(
     }
 
     return $query->first();
+}
+private function sendCustomerEmail(
+    array $flightData,
+    FlightSearchSession $session
+): void {
+    $data = $flightData['data'] ?? [];
+
+    // Customer email: first traveler contact, then the booking contact.
+    $email = null;
+    $name = null;
+
+    foreach (($data['travelers'] ?? []) as $traveler) {
+        $candidate = data_get($traveler, 'contact.emailAddress');
+
+        if (is_string($candidate) && filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
+            $email = $candidate;
+            $name = trim(
+                (string) data_get($traveler, 'name.firstName') . ' '
+                . (string) data_get($traveler, 'name.lastName')
+            );
+            break;
+        }
+    }
+
+    if (!$email) {
+        $candidate = data_get($data, 'contacts.0.emailAddress');
+
+        if (is_string($candidate) && filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
+            $email = $candidate;
+            $name = data_get($data, 'contacts.0.addresseeName.firstName');
+        }
+    }
+
+    if (!$email) {
+        Log::warning('No customer email found for booking confirmation.', [
+            'session_id' => $session->id,
+        ]);
+
+        return;
+    }
+
+    // The notification is queued, so keep passport and contact data out of the job payload.
+    $bookingData = [
+        'id' => $data['id'] ?? null,
+        'associatedRecords' => $data['associatedRecords'] ?? [],
+        'travelers' => array_map(
+            fn ($t) => ['name' => $t['name'] ?? []],
+            $data['travelers'] ?? []
+        ),
+        'flightOffers' => array_map(
+            fn ($offer) => ['itineraries' => $offer['itineraries'] ?? []],
+            $data['flightOffers'] ?? []
+        ),
+    ];
+
+    Notification::route('mail', $email)->notify(
+        new CustomerFlightBookingNotification(
+            $bookingData,
+            $name ?: 'Customer',
+            $session->total_payable,
+            $session->flight_currency
+        )
+    );
 }
 }
