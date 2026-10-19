@@ -11,9 +11,11 @@ class FlightOrders extends Model
     use HasFactory;
 
     protected $fillable = [
+        'pnr',
         'type',
         'queueing_office_id',
-        'pnr',
+        'flight_search_session_id',
+        'idempotency_key',
     ];
 
     public function associatedRecords(): HasMany

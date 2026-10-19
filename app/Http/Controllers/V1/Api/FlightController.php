@@ -1867,116 +1867,228 @@ public function confirmPrice(FlightOffersPrice $request): JsonResponse
     |--------------------------------------------------------------------------
     */
 
-    public function bookFlight(
-        FlightBookRequest $request
-    ): JsonResponse {
-        $data = $request->validated();
-        $idempotencyKey = trim((string) ($request->header('idempotency_key') ?? ''));
+ 
+public function bookFlight(
+    FlightBookRequest $request
+): JsonResponse 
+{
+    $data = $request->validated();
+  
+    
 
-        if ($idempotencyKey === '') {
-            return response()->json([
-                'success' => false,
-                'message' => 'The idempotency_key header is required.',
-            ], 422);
-        }
+    $idempotencyKey = trim(
+        (string) $request->header('idempotency_key', '')
+    );
 
-        $amaClient = trim(
-            (string) $request->header('ama-client-ref')
-        );
+    if ($idempotencyKey === '') {
+        return response()->json([
+            'success' => false,
+            'message' => 'The idempotency_key header is required.',
+        ], 422);
+    }
 
-        if ($amaClient === '') {
-            return response()->json([
-                'success' => false,
-                'message' => 'The ama-client-ref header is required.',
-            ], 422);
-        }
+    $amaClient = trim(
+        (string) $request->header('ama-client-ref', '')
+    );
 
-        $session = $this->findFlightSearchSession($amaClient);
+    if ($amaClient === '') {
+        return response()->json([
+            'success' => false,
+            'message' => 'The ama-client-ref header is required.',
+        ], 422);
+    }
 
-        if (
-            !$session ||
-            $session->status !== 'confirmed' ||
-            !hash_equals(
-                (string) $session->idempotency_key,
-                (string) $idempotencyKey
+    $session = $this->findFlightSearchSession($amaClient);
+
+    if (!$session) {
+        return response()->json([
+            'success' => false,
+            'message' => 'The flight search session is invalid or unauthorized.',
+        ], 403);
+    }
+
+    // Validate traveler information before attempting a booking.
+    if (
+        empty($data['data'])
+        || !is_array($data['data'])
+        || empty($data['data']['travelers'])
+        || !is_array($data['data']['travelers'])
+    ) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Traveler information is required.',
+        ], 422);
+    }
+
+    try {
+        return Cache::store('file')
+            ->lock(
+                self::BOOKING_LOCK_PREFIX . $idempotencyKey,
+                180
             )
-        ) {
-            return response()->json([
-                'success' => false,
-                'message' =>
-                    'The confirmed flight session is invalid or unauthorized.',
-            ], 403);
-        }
+            ->block(15, function () use (
+                $data,
+                $idempotencyKey,
+                $session,
+                $amaClient
+            ): JsonResponse {
+                $cache = Cache::store('file');
 
-        try {
-            return Cache::store('file')
-                ->lock(
-                    self::BOOKING_LOCK_PREFIX . $idempotencyKey,
-                    180
-                )
-                ->block(15, function () use (
-                    $data,
-                    $idempotencyKey,
-                    $session,
-                    $amaClient
-                ): JsonResponse {
-                    $existingOrder = FlightOrders::where(
-                        'idempotency_key',
+                /*
+                 * 1. Return an existing booking before checking session
+                 * expiry, so legitimate retries remain idempotent.
+                 */
+                $existingOrder = FlightOrders::where(
+                    'idempotency_key',
+                    $idempotencyKey
+                )->first();
+
+                if ($existingOrder) {
+                    // Prevent reuse of another session's idempotency key.
+                    if (
+                        (int) $existingOrder->flight_search_session_id
+                        !== (int) $session->id
+                    ) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'The idempotency key does not belong to this flight session.',
+                        ], 403);
+                    }
+
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'This booking was already processed.',
+                        'idempotency_key' => $idempotencyKey,
+                        'flight_order_id' => $existingOrder->id,
+                        'pnr' => $existingOrder->pnr,
+                    ]);
+                }
+
+                /*
+                 * 2. Refresh and validate the current session.
+                 */
+               $session->refresh();
+
+                if (
+                    $session->status !== 'confirmed'
+                    || !is_string($session->idempotency_key)
+                    || !hash_equals(
+                        $session->idempotency_key,
                         $idempotencyKey
-                    )->first();
+                    )
+                ) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'The confirmed flight session is invalid or unauthorized.',
+                    ], 403);
+                }
 
-                    if ($existingOrder) {
-                        return response()->json([
-                            'success' => true,
-                            'message' => 'This booking was already processed.',
+                if (
+                    $session->expires_at === null
+                    || !$session->expires_at->isFuture()
+                ) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'The confirmed flight offer has expired. Confirm the price again.',
+                    ], 410);
+                }
+
+                /*
+                 * 3. Read the cache using the same structure written
+                 * by confirmPrice():
+                 *
+                 * [
+                 *     'session_id' => ...,
+                 *     'fingerprint' => ...,
+                 *     'response' => [
+                 *         'data' => [
+                 *             'flightOffers' => [...]
+                 *         ]
+                 *     ]
+                 * ]
+                 */
+                $cacheKey = self::CONFIRMED_FLIGHT_PREFIX
+                    . $idempotencyKey;
+
+                $confirmed = $cache->get($cacheKey);
+
+                if (
+                    !is_array($confirmed)
+                    || (int) ($confirmed['session_id'] ?? 0)
+                        !== (int) $session->id
+                    || !isset($confirmed['response'])
+                    || !is_array($confirmed['response'])
+                    || !isset($confirmed['fingerprint'])
+                    || !is_string($confirmed['fingerprint'])
+                    || $confirmed['fingerprint'] === ''
+                    || !is_string($session->confirmation_fingerprint)
+                    || !hash_equals(
+                        $session->confirmation_fingerprint,
+                        $confirmed['fingerprint']
+                    )
+                ) {
+                    Log::warning(
+                        'Confirmed flight cache is missing or inconsistent.',
+                        [
+                            'ama_client_ref' => $amaClient,
+                            'session_id' => $session->id,
                             'idempotency_key' => $idempotencyKey,
-                            'flight_order_id' => $existingOrder->id,
-                            'pnr' => $existingOrder->pnr,
-                        ]);
-                    }
+                        ]
+                    );
 
-                    $cacheKey = self::CONFIRMED_FLIGHT_PREFIX
-                        . $idempotencyKey;
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'The confirmed flight offer is unavailable or invalid. Confirm the price again.',
+                    ], 410);
+                }
 
-                    $confirmed = Cache::store('file')->get($cacheKey);
+                $confirmedOffers =
+                    $confirmed['response']['data']['flightOffers'] ?? null;
 
-                    if (
-                        !is_array($confirmed) ||
-                        empty($confirmed['flightOffers']) ||
-                        (int) ($confirmed['session_id'] ?? 0)
-                            !== (int) $session->id
-                    ) {
-                        return response()->json([
-                            'success' => false,
-                            'message' =>
-                                'The confirmed flight offer has expired. Confirm the price again.',
-                        ], 410);
-                    }
+                if (
+                    !is_array($confirmedOffers)
+                    || empty($confirmedOffers)
+                ) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'The cached flight confirmation contains no valid offers. Confirm the price again.',
+                    ], 410);
+                }
 
-                    if (
-                        empty($data['data']) ||
-                        !is_array($data['data']) ||
-                        empty($data['data']['travelers']) ||
-                        !is_array($data['data']['travelers'])
-                    ) {
-                        return response()->json([
-                            'success' => false,
-                            'message' =>
-                                'Traveler information is required.',
-                        ], 422);
-                    }
+                /*
+                 * 4. Use only the server-confirmed offers.
+                 * Do not trust flightOffers submitted by the client.
+                 */
+                $data['data']['flightOffers'] = $confirmedOffers;
 
-                    // Use the server-cached offer, not client-submitted offers.
-                    $data['data']['flightOffers'] =
-                        $confirmed['flightOffers'];
+                /*
+                 * 5. Authenticate with Amadeus and submit the booking.
+                 */
+                $accessToken = $this->getAccessToken();
 
-                    $accessToken = $this->getAccessToken();
+                if (!$accessToken) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Unable to authenticate with Amadeus.',
+                    ], 502);
+                }
+
+                $feedback = $this->generatePNR(
+                    $data,
+                    $accessToken,
+                    $amaClient
+                );
+
+                if ($this->hasAccessTokenExpired($feedback)) {
+                    $accessToken = $this->getAccessToken(
+                        true,
+                        $accessToken
+                    );
 
                     if (!$accessToken) {
                         return response()->json([
                             'success' => false,
-                            'message' =>
-                                'Unable to authenticate with Amadeus.',
+                            'message' => 'Unable to refresh Amadeus authentication.',
                         ], 502);
                     }
 
@@ -1985,180 +2097,305 @@ public function confirmPrice(FlightOffersPrice $request): JsonResponse
                         $accessToken,
                         $amaClient
                     );
+                }
 
-                    if ($this->hasAccessTokenExpired($feedback)) {
-                        $accessToken = $this->getAccessToken(
-                            true,
-                            $accessToken
-                        );
-
-                        if (!$accessToken) {
-                            return response()->json([
-                                'success' => false,
-                                'message' =>
-                                    'Unable to refresh Amadeus authentication.',
-                            ], 502);
-                        }
-
-                        $feedback = $this->generatePNR(
-                            $data,
-                            $accessToken,
-                            $amaClient
-                        );
-                    }
-
-                    if (
-                        $this->hasAccessTokenExpired($feedback) ||
-                        !empty($feedback['errors']) ||
-                        empty($feedback['data']['id'])
-                    ) {
-                        unset(
-                            $feedback['accessToken'],
-                            $feedback['client']
-                        );
-
-                        Log::error('Amadeus flight booking failed.', [
-                            'idempotency_key' => $idempotencyKey,
-                            'status' => $feedback['httpCode'] ?? null,
-                        ]);
-
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'Flight booking failed.',
-                            'errors' => $feedback['errors'] ?? [],
-                        ], $feedback['httpCode'] ?? 400);
-                    }
-
-                    try {
-                        $flightOrderId = $this->StoreBooked(
-                            $feedback,
-                            $idempotencyKey
-                        );
-                    } catch (Throwable $e) {
-                        Log::critical(
-                            'Amadeus booking succeeded but local persistence failed.',
-                            [
-                                'idempotency_key' => $idempotencyKey,
-                                'amadeus_pnr' =>
-                                    $feedback['data']['id'] ?? null,
-                                'exception' => $e::class,
-                            ]
-                        );
-
-                        return response()->json([
-                            'success' => false,
-                            'message' =>
-                                'The airline booking may have succeeded, but saving it locally failed. Contact support before retrying.',
-                            'idempotency_key' => $idempotencyKey,
-                        ], 500);
-                    }
-
-                    try {
-                        $this->sendEmail($feedback);
-                    } catch (Throwable $e) {
-                        Log::error(
-                            'Flight booking email notification failed.',
-                            [
-                                'flight_order_id' => $flightOrderId,
-                                'exception' => $e::class,
-                            ]
-                        );
-                    }
-
-                    Cache::store('file')->forget($cacheKey);
-
-                    $session->update([
-                        'status' => 'booked',
-                    ]);
-
+                if (
+                    $this->hasAccessTokenExpired($feedback)
+                    || !empty($feedback['errors'])
+                    || empty($feedback['data']['id'])
+                ) {
                     unset(
                         $feedback['accessToken'],
                         $feedback['client']
                     );
 
-                    return response()->json([
-                        'success' => true,
-                        'message' => 'Flight booked successfully.',
+                    Log::error('Amadeus flight booking failed.', [
+                        'ama_client_ref' => $amaClient,
+                        'session_id' => $session->id,
                         'idempotency_key' => $idempotencyKey,
-                        'flight_order_id' => $flightOrderId,
-                        'pnr' => $feedback['data']['id'],
-                        'data' => $feedback,
+                        'status' => $feedback['httpCode'] ?? null,
                     ]);
-                });
-        } catch (LockTimeoutException $e) {
-            return response()->json([
-                'success' => false,
-                'message' =>
-                    'This booking request is already being processed. Check its status before retrying.',
-                'idempotency_key' => $idempotencyKey,
-            ], 409);
-        } catch (Throwable $e) {
-            Log::error('Flight booking request failed.', [
-                'idempotency_key' => $idempotencyKey,
-                'exception' => $e::class,
-            ]);
 
-            return response()->json([
-                'success' => false,
-                'message' => 'Unable to process the flight booking.',
-            ], 500);
-        }
+                    $statusCode = (int) ($feedback['httpCode'] ?? 400);
+
+                    if ($statusCode < 400 || $statusCode > 599) {
+                        $statusCode = 400;
+                    }
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Flight booking failed.',
+                        'errors' => $feedback['errors'] ?? [],
+                    ], $statusCode);
+                }
+
+                /*
+                 * 6. Persist the successful booking.
+                 */
+                    try {
+    $flightOrderId = $this->StoreBooked(
+        $feedback,
+        $idempotencyKey,
+        $session->id          //
+    );
+                } catch (Throwable $e) {
+                    Log::critical(
+                        'Amadeus booking succeeded but local persistence failed.',
+                        [
+                            'ama_client_ref' => $amaClient,
+                            'session_id' => $session->id,
+                            'idempotency_key' => $idempotencyKey,
+                            'amadeus_order_id' =>
+                                $feedback['data']['id'] ?? null,
+                            'exception' => $e::class,
+                            'message' => $e->getMessage(),
+                        ]
+                    );
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'The airline booking may have succeeded, but saving it locally failed. Contact support before retrying.',
+                        'idempotency_key' => $idempotencyKey,
+                    ], 500);
+                }
+
+                /*
+                 * 7. Email failure must not undo a successful booking.
+                 */
+                try {
+                    $this->sendEmail($feedback);
+                } catch (Throwable $e) {
+                    Log::error(
+                        'Flight booking email notification failed.',
+                        [
+                            'flight_order_id' => $flightOrderId,
+                            'idempotency_key' => $idempotencyKey,
+                            'exception' => $e::class,
+                            'message' => $e->getMessage(),
+                        ]
+                    );
+                }
+
+                /*
+                 * 8. Mark the session as booked and remove the
+                 * confirmed-offer cache.
+                 */
+               $bookedAt = now();
+
+$session->update([
+    'status' => 'booked',
+    'booked_at' => $bookedAt,
+]);
+
+                $cache->forget($cacheKey);
+
+                unset(
+                    $feedback['accessToken'],
+                    $feedback['client']
+                );
+
+                /*
+                 * data.id is the Amadeus flight-order ID, not
+                 * necessarily the airline's PNR/reference.
+                 */
+                $pnr = $feedback['data']['associatedRecords'][0]['reference']
+                    ?? $feedback['data']['id'];
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Flight booked successfully.',
+                    'idempotency_key' => $idempotencyKey,
+                    'flight_order_id' => $flightOrderId,
+                    'pnr' => $pnr,
+                    'data' => $feedback,
+                ]);
+            });
+    } catch (LockTimeoutException $e) {
+        return response()->json([
+            'success' => false,
+            'message' => 'This booking request is already being processed. Check its status before retrying.',
+            'idempotency_key' => $idempotencyKey,
+        ], 409);
+    } catch (Throwable $e) {
+        Log::error('Flight booking request failed.', [
+            'ama_client_ref' => $amaClient,
+            'idempotency_key' => $idempotencyKey,
+            'exception' => $e::class,
+            'message' => $e->getMessage(),
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Unable to process the flight booking.',
+        ], 500);
+    }
+}
+
+private function generatePNR(
+    array $info,
+    string $accessToken,
+    ?string $amaClient
+): array {
+    // Local testing only: set services.amadeus.use_static_booking = true
+    if ($this->amadeusConfig('use_static_booking', false) === true) {
+        return $this->staticBookingResponse();
     }
 
-    private function generatePNR(
-        array $info,
-        string $accessToken,
-        ?string $amaClient
-    ): array {
-        $url = $this->amadeusConfig('flight_book');
+    $url = $this->amadeusConfig('flight_book');
 
-        if (!is_string($url) || trim($url) === '') {
-            return [
+    if (!is_string($url) || trim($url) === '') {
+        return [
+            'errors' => [[
+                'title' => 'Flight booking endpoint is not configured.',
+            ]],
+            'httpCode' => 500,
+        ];
+    }
+
+    try {
+        $request = $this->amadeusRequest()
+            ->withToken($accessToken);
+
+        if ($amaClient !== null && $amaClient !== '') {
+            $request = $request->withHeaders([
+                'Ama-Client' => $amaClient,
+            ]);
+        }
+
+        $response = $request->post($url, $info);
+        $result = $response->json();
+
+        if (!is_array($result)) {
+            $result = [
                 'errors' => [[
-                    'title' => 'Flight booking endpoint is not configured.',
+                    'title' => 'Invalid response from Amadeus.',
                 ]],
+            ];
+        }
+
+        $result['httpCode'] = $response->status();
+
+        return $result;
+    } catch (Throwable $e) {
+        Log::error('Amadeus booking API request failed.', [
+            'exception' => $e::class,
+        ]);
+
+        return [
+            'errors' => [[
+                'title' => 'Unable to contact the flight booking service.',
+            ]],
+            'httpCode' => 502,
+        ];
+    }
+}
+
+private function staticBookingResponse(): array
+{
+    $file = storage_path('app/testing/amadeus-booking-response.json');
+
+    try {
+        if (!is_file($file) || !is_readable($file)) {
+            return [
+                'errors' => [['title' => 'Static booking response not found.']],
                 'httpCode' => 500,
             ];
         }
 
-        try {
-            $request = $this->amadeusRequest()
-                ->withToken($accessToken);
+        $result = json_decode(
+            file_get_contents($file),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
 
-            if ($amaClient !== null && $amaClient !== '') {
-                $request = $request->withHeaders([
-                    'Ama-Client' => $amaClient,
-                ]);
-            }
-
-            $response = $request->post($url, $info);
-            $result = $response->json();
-
-            if (!is_array($result)) {
-                $result = [
-                    'errors' => [[
-                        'title' => 'Invalid response from Amadeus.',
-                    ]],
-                ];
-            }
-
-            $result['httpCode'] = $response->status();
-
-            return $result;
-        } catch (Throwable $e) {
-            Log::error('Amadeus booking API request failed.', [
-                'exception' => $e::class,
-            ]);
-
+        if (!is_array($result)) {
             return [
-                'errors' => [[
-                    'title' =>
-                        'Unable to contact the flight booking service.',
-                ]],
-                'httpCode' => 502,
+                'errors' => [['title' => 'Invalid static booking response.']],
+                'httpCode' => 500,
             ];
         }
+
+        $result['httpCode'] = 201;
+
+        return $result;
+    } catch (Throwable $e) {
+        Log::error('Failed to load static booking response.', [
+            'exception' => $e::class,
+        ]);
+
+        return [
+            'errors' => [['title' => 'Unable to load static booking response.']],
+            'httpCode' => 500,
+        ];
     }
+}
+
+// private function generatePNR(
+//     array $info,
+//     string $accessToken,
+//     ?string $amaClient
+// ): array {
+//   $file = storage_path(
+//         'app/testing/amadeus-booking-response.json'
+//     );
+//     try {
+//         if (!is_file($file) || !is_readable($file)) {
+//             Log::error('Amadeus static booking response file is missing or unreadable.', [
+//                 'file' => $file,
+//             ]);
+
+//             return [
+//                 'errors' => [[
+//                     'title' => 'Static Amadeus booking response file not found or unreadable.',
+//                 ]],
+//                 'httpCode' => 500,
+//             ];
+//         }
+
+//         $contents = file_get_contents($file);
+
+//         if ($contents === false) {
+//             throw new RuntimeException(
+//                 'Unable to read the static Amadeus booking response file.'
+//             );
+//         }
+
+//         $result = json_decode(
+//             $contents,
+//             true,
+//             512,
+//             JSON_THROW_ON_ERROR
+//         );
+
+//         if (!is_array($result)) {
+//             return [
+//                 'errors' => [[
+//                     'title' => 'Invalid static Amadeus booking response.',
+//                 ]],
+//                 'httpCode' => 500,
+//             ];
+//         }
+
+//         // Simulate a successful Amadeus booking response.
+//         $result['httpCode'] = 201;
+
+//         return $result;
+//     } catch (Throwable $e) {
+//         Log::error('Failed to load static Amadeus booking response.', [
+//             'exception' => $e::class,
+//             'message' => $e->getMessage(),
+//         ]);
+
+//         return [
+//             'errors' => [[
+//                 'title' => 'Unable to load the static flight booking response.',
+//             ]],
+//             'httpCode' => 500,
+//         ];
+//     }
+// }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -2166,91 +2403,71 @@ public function confirmPrice(FlightOffersPrice $request): JsonResponse
     |--------------------------------------------------------------------------
     */
 
-    private function StoreBooked(
-        array $bookingResponse,
-        string $idempotencyKey
-    ): int {
-        $data = $bookingResponse['data'] ?? null;
+   private function StoreBooked(
+    array $bookingResponse,
+    string $idempotencyKey,
+    int $flightSearchSessionId          // ← new parameter
+): int {
+    $data = $bookingResponse['data'] ?? null;
 
-        if (!is_array($data) || empty($data['id'])) {
-            throw new \RuntimeException(
-                'The booking response does not contain a flight order ID.'
-            );
+    if (!is_array($data) || empty($data['id'])) {
+        throw new \RuntimeException(
+            'The booking response does not contain a flight order ID.'
+        );
+    }
+
+    return DB::transaction(function () use (
+        $data,
+        $idempotencyKey,
+        $flightSearchSessionId
+    ): int {
+        $existingOrder = FlightOrders::where(
+            'idempotency_key',
+            $idempotencyKey
+        )->first();
+
+        if ($existingOrder) {
+            return (int) $existingOrder->id;
         }
 
-        return DB::transaction(function () use (
-            $data,
-            $idempotencyKey
-        ): int {
-            $existingOrder = FlightOrders::where(
-                'idempotency_key',
-                $idempotencyKey
-            )->first();
+        $data['queuingOfficeId'] =
+            $data['queuingOfficeId']
+            ?? $this->amadeusConfig('queuing_office_id');
 
-            if ($existingOrder) {
-                return (int) $existingOrder->id;
-            }
+        $validated = $this->validateFlightOrderData($data);
 
-            $data['queuingOfficeId'] =
-                $data['queuingOfficeId']
-                ?? $this->amadeusConfig('queuing_office_id');
+        $flightOrderId = FlightOrders::insertGetId([
+            'type'                     => $validated['type'],
+            'queueing_office_id'       => $validated['queuingOfficeId'],
+            'pnr'                      => $validated['id'],
+            'idempotency_key'          => $idempotencyKey,
+            'flight_search_session_id' => $flightSearchSessionId, // ← now stored
+            'created_at'               => now(),
+            'updated_at'               => now(),
+        ]);
 
-            $validated = $this->validateFlightOrderData($data);
+        // … rest of the method unchanged (associatedRecords, travelers, etc.) …
+        if (!empty($data['associatedRecords'])) {
+            $this->createAssociatedRecords($data['associatedRecords'], $flightOrderId);
+        }
+        if (!empty($data['travelers'])) {
+            $this->createTravelers($data['travelers'], $flightOrderId);
+        }
+        if (!empty($data['flightOffers'])) {
+            $this->createFlightOffers($data['flightOffers'], $flightOrderId, $validated['id']);
+        }
+        if (!empty($data['ticketingAgreement'])) {
+            $this->createTicketingAgreement($data['ticketingAgreement'], $flightOrderId);
+        }
+        if (!empty($data['automatedProcess'])) {
+            $this->createAutomatedProcesses($data['automatedProcess'], $flightOrderId);
+        }
 
-            $flightOrderId = FlightOrders::insertGetId([
-                'type' => $validated['type'],
-                'queueing_office_id' =>
-                    $validated['queuingOfficeId'],
-                'pnr' => $validated['id'],
-                'idempotency_key' => $idempotencyKey,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+        $this->TicketStatus($flightOrderId, $validated['id']);
 
-            if (!empty($data['associatedRecords'])) {
-                $this->createAssociatedRecords(
-                    $data['associatedRecords'],
-                    $flightOrderId
-                );
-            }
-
-            if (!empty($data['travelers'])) {
-                $this->createTravelers(
-                    $data['travelers'],
-                    $flightOrderId
-                );
-            }
-
-            if (!empty($data['flightOffers'])) {
-                $this->createFlightOffers(
-                    $data['flightOffers'],
-                    $flightOrderId,
-                    $validated['id']
-                );
-            }
-
-            if (!empty($data['ticketingAgreement'])) {
-                $this->createTicketingAgreement(
-                    $data['ticketingAgreement'],
-                    $flightOrderId
-                );
-            }
-
-            if (!empty($data['automatedProcess'])) {
-                $this->createAutomatedProcesses(
-                    $data['automatedProcess'],
-                    $flightOrderId
-                );
-            }
-
-            $this->TicketStatus(
-                $flightOrderId,
-                $validated['id']
-            );
-
-            return (int) $flightOrderId;
-        }, 3);
-    }
+        return (int) $flightOrderId;
+    }, 3);
+}
 
     private function validateFlightOrderData(
         array $data
@@ -2318,7 +2535,9 @@ public function confirmPrice(FlightOffersPrice $request): JsonResponse
                 $this->createTravelerPricings(
                     $offer['travelerPricings'],
                     $flightOffer->id,
-                    $pnr
+                    $pnr,
+                   $flightOrderId 
+                    
                 );
             }
         }
@@ -2394,7 +2613,8 @@ public function confirmPrice(FlightOffersPrice $request): JsonResponse
     private function createTravelerPricings(
         array $travelerPricings,
         int $flightOfferId,
-        string $pnr
+        string $pnr,
+          $flightOrderId 
     ): void {
         foreach ($travelerPricings as $pricing) {
             $price = $pricing['price'] ?? [];
@@ -2417,29 +2637,62 @@ public function confirmPrice(FlightOffersPrice $request): JsonResponse
             if (!empty($pricing['fareDetailsBySegment'])) {
                 $this->createFareDetails(
                     $pricing['fareDetailsBySegment'],
-                    $travelerPricing->id
+                    $travelerPricing->id,
+                    $flightOrderId
                 );
             }
         }
     }
 
+
     private function createFareDetails(
-        array $fareDetailsBySegment,
-        int $travelerPricingId
-    ): void {
-        foreach ($fareDetailsBySegment as $fareDetail) {
-            FareDetail::create([
-                'traveler_pricing_id' => $travelerPricingId,
-                'segment_id' => $fareDetail['segmentId'] ?? null,
-                'cabin' => $fareDetail['cabin'] ?? null,
-                'fare_basis' => $fareDetail['fareBasis'] ?? null,
-                'class' => $fareDetail['class'] ?? null,
-                'included_checked_bags' => json_encode(
-                    $fareDetail['includedCheckedBags'] ?? []
-                ),
-            ]);
+    array $fareDetailsBySegment,
+    int $travelerPricingId,
+    int $flightOrderId,
+): void {
+    foreach ($fareDetailsBySegment as $fareDetail) {
+        $amSegmentId = (string) (
+            $fareDetail['segmentId'] ?? ''
+        );
+
+        if ($amSegmentId === '') {
+            throw new \RuntimeException(
+                'Fare detail is missing its Amadeus segment ID.'
+            );
         }
+
+        $segment = Segments::where(
+            'am_segment_id',
+            $amSegmentId
+        )->first();
+
+        if (!$segment) {
+            throw new \RuntimeException(
+                "No local segment found for Amadeus segment ID: {$amSegmentId}"
+            );
+        }
+
+        FareDetail::create([
+            'traveler_pricing_id' => $travelerPricingId,
+
+            // Local segments.id
+            'segment_id' => $segment->id,
+             'flight_order_id' => $flightOrderId,
+
+            // Amadeus segment identifier
+            'am_segment_id' => $amSegmentId,
+
+            'cabin' => $fareDetail['cabin'] ?? "Unknown",
+            'fare_basis' => $fareDetail['fareBasis'] ?? null,
+            'class' => $fareDetail['class'] ?? null,
+
+            'included_checked_bags' => json_encode(
+                $fareDetail['includedCheckedBags'] ?? [],
+                JSON_THROW_ON_ERROR
+            ),
+        ]);
     }
+}
 
     private function createTravelers(
         array $travelers,
