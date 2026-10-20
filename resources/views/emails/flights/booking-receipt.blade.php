@@ -53,7 +53,7 @@
                 </p>
 
                 <p style="margin:0 0 14px; font-size:14px; line-height:1.7;">
-                    <span style="color:#666666;">Booking Order ID</span><br>
+                    <span style="color:#666666;">Booking Order Reference</span><br>
                     <strong style="color:#333333;">
                         {{ $bookingId ?? 'N/A' }}
                     </strong>
