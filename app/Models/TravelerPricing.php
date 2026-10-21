@@ -25,7 +25,8 @@ class TravelerPricing extends Model
         'taxes' => 'array',
         'refundable_taxes' => 'array',
     ];
-
+protected $hidden = ['flight_pnr'];
+protected $appends = ['flight_order_reference'];
     public function flightOffer()
     {
         return $this->belongsTo(FlightOffers::class);
@@ -39,5 +40,9 @@ class TravelerPricing extends Model
     public function fareDetails()
     {
         return $this->hasMany(FareDetail::class);
+    }
+       public function getFlightOrderReferenceAttribute(): ?string
+    {
+        return $this->attributes['flight_pnr'] ?? null;
     }
 }

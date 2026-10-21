@@ -286,6 +286,7 @@ public function getBooked(Request $request)
 }
 private function getPNR($associatedRecord)
 {
+    
     foreach ($associatedRecord as &$assoc) { // Use by reference to modify the array element
         $assoc['pnr'] = $assoc['reference']; // Correct key name, if it's an array
         unset($assoc['reference']); // Correctly unsetting
