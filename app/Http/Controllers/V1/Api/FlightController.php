@@ -879,7 +879,7 @@ public function searchFlights(
         $accessToken,
         $data,
         [
-            'ama-client-ref' => $amaClientRef,
+            'ama_client_ref' => $amaClientRef,
         ]
     );
 
@@ -902,7 +902,7 @@ public function searchFlights(
             $accessToken,
             $data,
             [
-                'ama-client-ref' => $amaClientRef,
+                'ama_client_ref' => $amaClientRef,
             ]
         );
     }
@@ -944,7 +944,7 @@ private function fetchFlightOffers(
             trim($amaClientRef) !== ''
         ) {
             $request = $request->withHeaders([
-                'ama-client-ref' => trim($amaClientRef),
+                'ama_client_ref' => trim($amaClientRef),
             ]);
         }
 
@@ -1390,13 +1390,13 @@ public function confirmPrice(FlightOffersPrice $request): JsonResponse
 
     // This is a session reference, not an authorization token.
     $amaClient = trim(
-        (string) $request->header('ama-client-ref')
+        (string) $request->header('ama_client_ref')
     );
 
     if ($amaClient === '') {
         return response()->json([
             'status' => false,
-            'message' => 'The ama-client-ref header is required.',
+            'message' => 'The ama_client_ref header is required.',
         ], 422);
     }
 
@@ -1889,13 +1889,13 @@ public function bookFlight(
     }
 
     $amaClient = trim(
-        (string) $request->header('ama-client-ref', '')
+        (string) $request->header('ama_client_ref', '')
     );
 
     if ($amaClient === '') {
         return response()->json([
             'success' => false,
-            'message' => 'The ama-client-ref header is required.',
+            'message' => 'The ama_client_ref header is required.',
         ], 422);
     }
 
