@@ -22,7 +22,7 @@ return [
 
     'allowed_origins_patterns' => [], // Leave empty unless regex patterns for origins are required
 
-    'allowed_headers' => ['Content-Type', 'X-Requested-With', 'Authorization', 'Origin', 'Accept', 'ama-client-ref'], // Allow these headers
+    'allowed_headers' => ['Content-Type', 'X-Requested-With', 'Authorization', 'Origin', 'Accept', 'ama-client-ref', 'idempotency-key'], // Allow these headers
 
     'exposed_headers' => ['Content-Type', 'X-Requested-With'], // Expose necessary headers
 
