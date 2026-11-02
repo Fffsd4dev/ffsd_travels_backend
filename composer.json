@@ -7,7 +7,7 @@
     "require": {
         "php": "^8.2",
         "ichtrojan/laravel-otp": "^2.0",
-        "laravel/framework": "^11.9",
+        "laravel/framework": "^12.68",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.9",
         "laraveldaily/laravel-invoices": "^4.0",
